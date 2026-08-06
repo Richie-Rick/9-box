@@ -110,6 +110,8 @@ model ManagerAssessment {
   trend               TrendDirection?
   notes               String?
   submittedAt         DateTime?
+  lastEditedAt        DateTime?
+  unlockedAt          DateTime?
   resultsSentAt       DateTime?
   oneOnOneComplete    Boolean   @default(false)
   oneOnOneCompletedAt DateTime?
@@ -144,6 +146,8 @@ model SelfAssessment {
   supportNeeded            String?
   goalsNextMonth           String?
   submittedAt              DateTime?
+  lastEditedAt             DateTime?
+  unlockedAt               DateTime?
   createdAt                DateTime  @default(now())
   updatedAt                DateTime  @updatedAt
 

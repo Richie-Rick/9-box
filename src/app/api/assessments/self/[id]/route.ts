@@ -38,29 +38,3 @@ export async function GET(
 
   return NextResponse.json(assessment);
 }
-
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id } = await params;
-
-  const existing = await prisma.selfAssessment.findUnique({ where: { id } });
-  if (!existing || existing.employeeId !== session.user.id) {
-    return NextResponse.json({ error: "Not found or not yours" }, { status: 404 });
-  }
-
-  const body = await request.json();
-
-  const assessment = await prisma.selfAssessment.update({
-    where: { id },
-    data: body,
-  });
-
-  return NextResponse.json(assessment);
-}

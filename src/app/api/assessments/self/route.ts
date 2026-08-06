@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { SELF_FIELDS, pickFields, canEditSubmitted } from "@/lib/assessment-rules";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -58,6 +59,15 @@ export async function GET(request: Request) {
     }
   }
 
+  if (cycleId && assessments.length > 0) {
+    const a = assessments[0];
+    const resultsSent = !!(await prisma.managerAssessment.findFirst({
+      where: { cycleId, employeeId: session.user.id, resultsSentAt: { not: null } },
+    }));
+    const canEdit = a.cycle.status === "OPEN" && canEditSubmitted(resultsSent, a.unlockedAt);
+    return NextResponse.json([{ ...a, _canEdit: canEdit }, ...assessments.slice(1)]);
+  }
+
   return NextResponse.json(assessments);
 }
 
@@ -68,7 +78,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { cycleId, ...data } = body;
+  const { cycleId, submit } = body;
 
   if (!cycleId) {
     return NextResponse.json({ error: "cycleId is required" }, { status: 400 });
@@ -78,6 +88,28 @@ export async function POST(request: Request) {
   const cycle = await prisma.assessmentCycle.findUnique({ where: { id: cycleId } });
   if (!cycle || cycle.status !== "OPEN") {
     return NextResponse.json({ error: "Cycle is not open" }, { status: 400 });
+  }
+
+  // Lifecycle fields are server-managed; only whitelisted content fields are written
+  const data = pickFields(body, SELF_FIELDS);
+
+  const existing = await prisma.selfAssessment.findUnique({
+    where: { cycleId_employeeId: { cycleId, employeeId: session.user.id } },
+  });
+
+  if (existing?.submittedAt) {
+    const resultsSent = !!(await prisma.managerAssessment.findFirst({
+      where: { cycleId, employeeId: session.user.id, resultsSentAt: { not: null } },
+    }));
+    if (!canEditSubmitted(resultsSent, existing.unlockedAt)) {
+      return NextResponse.json(
+        { error: "This assessment is locked because results have been sent. Ask an admin to unlock it." },
+        { status: 403 }
+      );
+    }
+    data.lastEditedAt = new Date();
+  } else if (submit === true) {
+    data.submittedAt = new Date();
   }
 
   const assessment = await prisma.selfAssessment.upsert({

@@ -17,6 +17,8 @@ export default function SelfAssessmentPage() {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [canEdit, setCanEdit] = useState(true);
+  const [lastEditedAt, setLastEditedAt] = useState<string | null>(null);
   const [prefilled, setPrefilled] = useState(false);
 
   useEffect(() => {
@@ -28,6 +30,8 @@ export default function SelfAssessmentPage() {
           const a = data[0];
           setAssessmentId(a.id);
           setIsSubmitted(!!a.submittedAt);
+          if (a._canEdit !== undefined) setCanEdit(a._canEdit);
+          setLastEditedAt(a.lastEditedAt || null);
           const prev = a._prefilled;
           setValues({
             performance: a.performance,
@@ -54,7 +58,7 @@ export default function SelfAssessmentPage() {
     if (!cycleId) return;
     const body = { cycleId, ...values };
     if (submit) {
-      (body as Record<string, unknown>).submittedAt = new Date().toISOString();
+      (body as Record<string, unknown>).submit = true;
     }
 
     if (submit) setSubmitting(true);
@@ -67,7 +71,12 @@ export default function SelfAssessmentPage() {
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to save");
+        return;
+      }
       setAssessmentId(data.id);
+      setLastEditedAt(data.lastEditedAt || null);
       if (submit) {
         setIsSubmitted(true);
         if (data.bothComplete) {
@@ -193,6 +202,8 @@ export default function SelfAssessmentPage() {
         saving={saving}
         submitting={submitting}
         isSubmitted={isSubmitted}
+        canEdit={canEdit}
+        lastEditedAt={lastEditedAt}
       />
     </div>
   );
