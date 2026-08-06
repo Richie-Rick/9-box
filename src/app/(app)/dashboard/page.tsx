@@ -297,6 +297,63 @@ function SendResultsConfirmModal({ memberName, onConfirm, onCancel }: { memberNa
   );
 }
 
+function MySelfAssessmentCard({ cycle }: { cycle: CycleData }) {
+  const { data: session } = useSession();
+  const router = useRouter();
+  const [status, setStatus] = useState<{ started: boolean; submitted: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    fetch(`/api/assessments/summary?employeeId=${session.user.id}&cycleId=${cycle.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        setStatus({
+          started: data.selfAssessment?.performance != null,
+          submitted: !!data.selfAssessment?.submittedAt,
+        });
+      })
+      .catch(() => {});
+  }, [session?.user?.id, cycle.id]);
+
+  if (!status) return null;
+
+  const isOpen = cycle.status === "OPEN";
+
+  return (
+    <Card>
+      <CardContent className="py-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-visory-navy">My Self-Assessment</h3>
+            <Badge
+              className={
+                status.submitted
+                  ? "bg-green-100 text-green-800 border-green-300"
+                  : "bg-gray-100 text-gray-800 border-gray-300"
+              }
+            >
+              {status.submitted ? "Submitted" : "Pending"}
+            </Badge>
+          </div>
+          <div className="flex gap-2">
+            {!status.submitted && isOpen && (
+              <Button size="sm" onClick={() => router.push(`/self-assessment?cycleId=${cycle.id}`)}>
+                {status.started ? "Continue Self-Assessment" : "Start Self-Assessment"}
+              </Button>
+            )}
+            {status.submitted && (
+              <Button variant="secondary" size="sm" onClick={() => router.push("/my-reviews")}>
+                View Results
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ManagerDashboard() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -405,6 +462,9 @@ function ManagerDashboard() {
           </div>
         )}
       </div>
+
+      {/* Own self-assessment for the current cycle */}
+      {cycle && <MySelfAssessmentCard cycle={cycle} />}
 
       {/* Admin quick links */}
       {role === "ADMIN" && (
