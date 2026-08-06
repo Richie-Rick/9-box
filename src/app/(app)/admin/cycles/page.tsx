@@ -15,7 +15,7 @@ import type { CycleData } from "@/types";
 interface CycleAssessment {
   id: string;
   employee: { id: string; name: string; email: string };
-  manager: { id: string; name: string };
+  manager: { id: string; name: string } | null;
   selfStatus: "pending" | "submitted";
   managerStatus: "pending" | "submitted";
   overallStatus: "pending" | "in_progress" | "ready_to_send" | "results_sent";
@@ -295,7 +295,7 @@ export default function AdminCyclesPage() {
                                     >
                                       {a.employee.name}
                                     </button>
-                                    <p className="tiny text-ink-3">Mgr: {a.manager.name}</p>
+                                    <p className="tiny text-ink-3">Mgr: {a.manager?.name ?? "—"}</p>
                                     <div className="flex items-center gap-2.5 mt-1 tiny">
                                       <span className={a.selfStatus === "submitted" ? "text-success" : "text-ink-4"} title="Self">● Self</span>
                                       <span className={a.managerStatus === "submitted" ? "text-success" : "text-ink-4"} title="Manager">● Mgr</span>
