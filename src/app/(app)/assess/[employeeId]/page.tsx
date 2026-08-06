@@ -250,7 +250,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         onSubmit={() => save(true)}
         saving={saving}
         submitting={submitting}
-        isSubmitted={resultsSent || (isSubmitted && !editing)}
+        isSubmitted={locked}
+        disabled={locked}
       />
     </div>
   );

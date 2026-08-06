@@ -196,9 +196,14 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
             Self-assessment for {formatCyclePeriod(openCycle)} <Badge variant="success">Submitted</Badge>
           </p>
         </div>
-        <Button variant="secondary" onClick={() => router.push("/my-reviews")}>
-          View My Reviews
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => router.push(`/self-assessment?cycleId=${openCycle.id}`)}>
+            Edit Self-Assessment
+          </Button>
+          <Button variant="secondary" onClick={() => router.push("/my-reviews")}>
+            View My Reviews
+          </Button>
+        </div>
       </Card>
     );
 
@@ -254,10 +259,15 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
                     {summary.mgrSubmitted ? "Submitted" : "Pending"}
                   </Badge>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {!summary.selfSubmitted && isOpen && (
                     <Button variant="magenta" onClick={() => router.push(`/self-assessment?cycleId=${summary.cycleId}`)}>
                       {summary.selfPerformance !== null ? "Continue Self-Assessment" : "Start Self-Assessment"}
+                    </Button>
+                  )}
+                  {summary.selfSubmitted && isOpen && (
+                    <Button variant="secondary" onClick={() => router.push(`/self-assessment?cycleId=${summary.cycleId}`)}>
+                      Edit Self-Assessment
                     </Button>
                   )}
                   {(summary.selfSubmitted || summary.mgrSubmitted) && (

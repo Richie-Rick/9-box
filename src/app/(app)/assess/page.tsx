@@ -99,7 +99,7 @@ export default function AssessTeamPage() {
                   variant={member.managerAssessmentStatus === "submitted" ? "ghost" : "primary"}
                   onClick={() => router.push(`/assess/${member.id}?cycleId=${selectedCycleId}`)}
                 >
-                  {member.managerAssessmentStatus === "submitted" ? "View" : "Assess"}
+                  {member.managerAssessmentStatus === "submitted" ? "Edit Review" : "Assess"}
                 </Button>
                 {member.managerAssessmentStatus === "submitted" && (
                   <Button

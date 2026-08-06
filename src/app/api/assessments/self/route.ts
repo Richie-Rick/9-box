@@ -3,12 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { comparePeriodDesc } from "@/lib/utils";
 import { logAudit, diffFields } from "@/lib/audit";
-
-const SELF_AUDITED_FIELDS = [
-  "performance", "performanceJustification", "achievements", "blockers", "learning",
-  "valCustomerFirst", "valStepIntoArena", "valFlockToProblems", "valGiveEnergy",
-  "valuesReflection", "engagement", "engagementDriver", "supportNeeded", "goalsNextMonth",
-];
+import { SELF_ASSESSMENT_FIELDS, pickFields } from "@/lib/assessment-fields";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -95,20 +90,29 @@ export async function POST(request: Request) {
     }
   }
 
-  const assessment = await prisma.selfAssessment.upsert({
-    where: {
-      cycleId_employeeId: {
-        cycleId,
-        employeeId: session.user.id,
-      },
-    },
-    update: { ...data, updatedAt: new Date() },
-    create: {
-      cycleId,
-      employeeId: session.user.id,
-      ...data,
-    },
-  });
+  // Only whitelisted content fields are written. submittedAt is stamped
+  // server-side: set once when the client submits, never cleared or
+  // overwritten with a client-supplied timestamp.
+  const content = pickFields(data, SELF_ASSESSMENT_FIELDS);
+  const wantsSubmit = Boolean(data.submittedAt);
+
+  const assessment = existing
+    ? await prisma.selfAssessment.update({
+        where: { id: existing.id },
+        data: {
+          ...content,
+          ...(wantsSubmit && !existing.submittedAt ? { submittedAt: new Date() } : {}),
+          updatedAt: new Date(),
+        },
+      })
+    : await prisma.selfAssessment.create({
+        data: {
+          cycleId,
+          employeeId: session.user.id,
+          ...content,
+          ...(wantsSubmit ? { submittedAt: new Date() } : {}),
+        },
+      });
 
   // Editing an already-completed (submitted) self-assessment is allowed but
   // recorded in the audit trail.
@@ -116,7 +120,7 @@ export async function POST(request: Request) {
     const changes = diffFields(
       existing as unknown as Record<string, unknown>,
       assessment as unknown as Record<string, unknown>,
-      SELF_AUDITED_FIELDS
+      SELF_ASSESSMENT_FIELDS
     );
     const changed = Object.keys(changes);
     if (changed.length > 0) {

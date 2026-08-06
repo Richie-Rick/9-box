@@ -136,12 +136,13 @@ export default function MyTeamPage() {
                   <Button size="sm" variant="secondary" onClick={() => router.push(`/team/${member.id}`)}>
                     View Profile
                   </Button>
-                  {cycle && member.managerAssessmentStatus !== "submitted" && (
+                  {cycle && (
                     <Button
                       size="sm"
+                      variant={member.managerAssessmentStatus === "submitted" ? "secondary" : "primary"}
                       onClick={() => router.push(`/assess/${member.id}?cycleId=${cycle.id}`)}
                     >
-                      Assess
+                      {member.managerAssessmentStatus === "submitted" ? "Edit Review" : "Assess"}
                     </Button>
                   )}
                   {cycle && bothSubmitted && (

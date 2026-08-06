@@ -233,6 +233,7 @@ export default function SelfAssessmentPage() {
         saving={saving}
         submitting={submitting}
         isSubmitted={locked}
+        disabled={locked}
       />
     </div>
   );

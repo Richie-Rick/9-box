@@ -4,13 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
 import { logAudit, diffFields } from "@/lib/audit";
-
-const AUDITED_FIELDS = [
-  "performance", "performanceEvidence",
-  "growthReadiness", "growthReadinessEvidence",
-  "valCustomerFirst", "valStepIntoArena", "valFlockToProblems", "valGiveEnergy",
-  "valuesEvidence", "engagement", "engagementEvidence", "trend", "notes",
-];
+import { MANAGER_ASSESSMENT_FIELDS, pickFields } from "@/lib/assessment-fields";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -60,19 +54,31 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "cycleId and employeeId are required" }, { status: 400 });
   }
 
-  // Verify employee is a direct report
-  const employee = await prisma.user.findFirst({
-    where: { id: employeeId, managerId: session.user.id },
-  });
-  if (!employee) {
-    return NextResponse.json({ error: "Employee not found or not your direct report" }, { status: 404 });
-  }
+  const isElevated = session.user.role === "LEADERSHIP" || session.user.role === "ADMIN";
 
-  const existing = await prisma.managerAssessment.findUnique({
+  // Find the row being written: the caller's own assessment, or — for
+  // leadership/admin correcting someone else's review — the owning manager's.
+  let existing = await prisma.managerAssessment.findUnique({
     where: {
       cycleId_managerId_employeeId: { cycleId, managerId: session.user.id, employeeId },
     },
   });
+  if (!existing && isElevated) {
+    existing = await prisma.managerAssessment.findFirst({
+      where: { cycleId, employeeId },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  // Writing your own assessment requires the employee to be a direct report.
+  if (!existing || existing.managerId === session.user.id) {
+    const employee = await prisma.user.findFirst({
+      where: { id: employeeId, managerId: session.user.id },
+    });
+    if (!employee) {
+      return NextResponse.json({ error: "Employee not found or not your direct report" }, { status: 404 });
+    }
+  }
 
   // The cycle must be OPEN to CREATE a brand-new assessment. An existing
   // assessment can be edited at any point — even after the cycle is closed.
@@ -91,22 +97,30 @@ export async function POST(request: Request) {
     );
   }
 
-  const assessment = await prisma.managerAssessment.upsert({
-    where: {
-      cycleId_managerId_employeeId: {
-        cycleId,
-        managerId: session.user.id,
-        employeeId,
-      },
-    },
-    update: { ...data, updatedAt: new Date() },
-    create: {
-      cycleId,
-      managerId: session.user.id,
-      employeeId,
-      ...data,
-    },
-  });
+  // Only whitelisted content fields are written. submittedAt is stamped
+  // server-side: set once when the client submits, never cleared or
+  // overwritten with a client-supplied timestamp.
+  const content = pickFields(data, MANAGER_ASSESSMENT_FIELDS);
+  const wantsSubmit = Boolean(data.submittedAt);
+
+  const assessment = existing
+    ? await prisma.managerAssessment.update({
+        where: { id: existing.id },
+        data: {
+          ...content,
+          ...(wantsSubmit && !existing.submittedAt ? { submittedAt: new Date() } : {}),
+          updatedAt: new Date(),
+        },
+      })
+    : await prisma.managerAssessment.create({
+        data: {
+          cycleId,
+          managerId: session.user.id,
+          employeeId,
+          ...content,
+          ...(wantsSubmit ? { submittedAt: new Date() } : {}),
+        },
+      });
 
   // Editing an already-completed (submitted) assessment before results are sent
   // is allowed but recorded in the audit trail.
@@ -114,7 +128,7 @@ export async function POST(request: Request) {
     const changes = diffFields(
       existing as unknown as Record<string, unknown>,
       assessment as unknown as Record<string, unknown>,
-      AUDITED_FIELDS
+      MANAGER_ASSESSMENT_FIELDS
     );
     const changed = Object.keys(changes);
     if (changed.length > 0) {

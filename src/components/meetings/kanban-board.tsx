@@ -138,11 +138,10 @@ function MemberCard({
   // dropping elsewhere is ignored in handleDragEnd.
   const draggable = (settable || column === "NOT_READY") && !closed;
 
-  // Surface the manager-assessment CTA while it still needs doing: always in the
-  // In-Assessment column, and also on a Ready-to-Meet card that was advanced by
-  // override before the assessment was finished (so it isn't stranded mid-cycle).
+  // The manager assessment stays reachable from every column: a submitted
+  // review can be re-opened and edited (audited) until results are sent, and
+  // after that the assess page offers Unlock & edit.
   const mgrSubmitted = member.managerAssessmentStatus === "submitted";
-  const showAssess = !closed && (column === "NOT_READY" || (column === "READY_TO_MEET" && !mgrSubmitted));
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: member.id,
@@ -183,22 +182,22 @@ function MemberCard({
         </div>
       )}
 
-      {/* Assess CTA — kick off or continue the manager assessment from the board */}
-      {showAssess && (
-        <div className="mt-3">
-          <Button
-            variant={mgrSubmitted ? "secondary" : "magenta"}
-            size="sm"
-            onClick={() => onAssess(member)}
-          >
-            {mgrSubmitted
-              ? "View assessment"
+      {/* Assess CTA — kick off, continue, or edit the manager assessment */}
+      <div className="mt-3">
+        <Button
+          variant={mgrSubmitted || closed ? "secondary" : "magenta"}
+          size="sm"
+          onClick={() => onAssess(member)}
+        >
+          {closed
+            ? "View assessment"
+            : mgrSubmitted
+              ? "Edit assessment"
               : member.managerAssessmentStatus === "draft"
                 ? "Continue assessment"
                 : "Assess"}
-          </Button>
-        </div>
-      )}
+        </Button>
+      </div>
 
       {closed ? (
         <div className="mt-3">

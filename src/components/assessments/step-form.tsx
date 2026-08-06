@@ -37,6 +37,9 @@ interface StepFormProps {
   saving?: boolean;
   submitting?: boolean;
   isSubmitted?: boolean;
+  // When true the step's inputs are actually disabled (not just the footer
+  // buttons) — used while a submitted assessment is locked for editing.
+  disabled?: boolean;
 }
 
 export function StepForm({
@@ -48,6 +51,7 @@ export function StepForm({
   saving,
   submitting,
   isSubmitted,
+  disabled,
 }: StepFormProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const step = steps[currentStep];
@@ -76,11 +80,14 @@ export function StepForm({
         {step.description && (
           <p className="text-sm text-ink-3 mb-6">{step.description}</p>
         )}
-        <div className="mt-4">
+        <fieldset
+          disabled={disabled}
+          className={cn("mt-4 min-w-0", disabled && "opacity-70")}
+        >
           {step.renderMulti
             ? step.renderMulti(values, onChange)
             : step.render?.(values[step.id], (val) => onChange(step.id, val))}
-        </div>
+        </fieldset>
         {step.footer && (
           <div className="mt-6 pt-6 border-t border-line space-y-6">{step.footer}</div>
         )}
