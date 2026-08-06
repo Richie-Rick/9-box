@@ -16,6 +16,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [canEdit, setCanEdit] = useState(true);
+  const [lastEditedAt, setLastEditedAt] = useState<string | null>(null);
   const [employeeName, setEmployeeName] = useState("");
 
   useEffect(() => {
@@ -27,6 +29,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
           const a = data[0];
           setAssessmentId(a.id);
           setIsSubmitted(!!a.submittedAt);
+          setCanEdit(a.cycle?.status === "OPEN" && (!a.resultsSentAt || !!a.unlockedAt));
+          setLastEditedAt(a.lastEditedAt || null);
           setEmployeeName(a.employee?.name || "");
           setValues({
             performance: a.performance,
@@ -50,7 +54,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
     if (!cycleId) return;
     const body = { cycleId, employeeId, ...values };
     if (submit) {
-      (body as Record<string, unknown>).submittedAt = new Date().toISOString();
+      (body as Record<string, unknown>).submit = true;
     }
 
     if (submit) setSubmitting(true);
@@ -63,7 +67,12 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to save");
+        return;
+      }
       setAssessmentId(data.id);
+      setLastEditedAt(data.lastEditedAt || null);
       if (submit) {
         setIsSubmitted(true);
         if (data.bothComplete) {
@@ -177,6 +186,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         saving={saving}
         submitting={submitting}
         isSubmitted={isSubmitted}
+        canEdit={canEdit}
+        lastEditedAt={lastEditedAt}
       />
     </div>
   );

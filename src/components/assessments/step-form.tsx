@@ -23,6 +23,8 @@ interface StepFormProps {
   saving?: boolean;
   submitting?: boolean;
   isSubmitted?: boolean;
+  canEdit?: boolean;
+  lastEditedAt?: string | null;
 }
 
 export function StepForm({
@@ -34,11 +36,15 @@ export function StepForm({
   saving,
   submitting,
   isSubmitted,
+  canEdit,
+  lastEditedAt,
 }: StepFormProps) {
   const [currentStep, setCurrentStep] = useState(0);
+  const [editing, setEditing] = useState(false);
   const step = steps[currentStep];
   const isLast = currentStep === steps.length - 1;
   const isFirst = currentStep === 0;
+  const readOnly = !!isSubmitted && !editing;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -62,9 +68,9 @@ export function StepForm({
         {step.description && (
           <p className="text-sm text-gray-500 mb-6">{step.description}</p>
         )}
-        <div className="mt-4">
+        <fieldset disabled={readOnly} className="mt-4">
           {step.render(values[step.id], (val) => onChange(step.id, val))}
-        </div>
+        </fieldset>
       </div>
 
       {/* Navigation */}
@@ -77,20 +83,64 @@ export function StepForm({
           Back
         </Button>
         <div className="flex items-center gap-3">
-          <Button variant="secondary" onClick={onSave} disabled={saving || isSubmitted}>
-            {saving ? "Saving..." : "Save Draft"}
-          </Button>
-          {isLast ? (
-            <Button onClick={onSubmit} disabled={submitting || isSubmitted}>
-              {isSubmitted ? "Submitted" : submitting ? "Submitting..." : "Submit"}
-            </Button>
+          {readOnly ? (
+            <>
+              {canEdit ? (
+                <Button variant="secondary" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              ) : (
+                <span className="text-sm text-gray-500">Locked — results sent</span>
+              )}
+              {isLast ? (
+                <Button disabled>Submitted</Button>
+              ) : (
+                <Button onClick={() => setCurrentStep((s) => s + 1)}>
+                  Next
+                </Button>
+              )}
+            </>
+          ) : editing ? (
+            <>
+              {isLast ? (
+                <Button onClick={onSave} disabled={saving}>
+                  {saving ? "Saving..." : "Save Changes"}
+                </Button>
+              ) : (
+                <>
+                  <Button variant="secondary" onClick={onSave} disabled={saving}>
+                    {saving ? "Saving..." : "Save Changes"}
+                  </Button>
+                  <Button onClick={() => setCurrentStep((s) => s + 1)}>
+                    Next
+                  </Button>
+                </>
+              )}
+            </>
           ) : (
-            <Button onClick={() => setCurrentStep((s) => s + 1)}>
-              Next
-            </Button>
+            <>
+              <Button variant="secondary" onClick={onSave} disabled={saving}>
+                {saving ? "Saving..." : "Save Draft"}
+              </Button>
+              {isLast ? (
+                <Button onClick={onSubmit} disabled={submitting}>
+                  {submitting ? "Submitting..." : "Submit"}
+                </Button>
+              ) : (
+                <Button onClick={() => setCurrentStep((s) => s + 1)}>
+                  Next
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
+
+      {lastEditedAt && (
+        <p className="text-xs text-gray-500 text-right mt-2">
+          Last edited {new Date(lastEditedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}
+        </p>
+      )}
     </div>
   );
 }

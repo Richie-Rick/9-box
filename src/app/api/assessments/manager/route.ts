@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
+import { MANAGER_FIELDS, pickFields, canEditSubmitted } from "@/lib/assessment-rules";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -45,7 +46,7 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { cycleId, employeeId, ...data } = body;
+  const { cycleId, employeeId, submit } = body;
 
   if (!cycleId || !employeeId) {
     return NextResponse.json({ error: "cycleId and employeeId are required" }, { status: 400 });
@@ -63,6 +64,31 @@ export async function POST(request: Request) {
   });
   if (!employee) {
     return NextResponse.json({ error: "Employee not found or not your direct report" }, { status: 404 });
+  }
+
+  // Lifecycle fields are server-managed; only whitelisted content fields are written
+  const data = pickFields(body, MANAGER_FIELDS);
+
+  const existing = await prisma.managerAssessment.findUnique({
+    where: {
+      cycleId_managerId_employeeId: {
+        cycleId,
+        managerId: session.user.id,
+        employeeId,
+      },
+    },
+  });
+
+  if (existing?.submittedAt) {
+    if (!canEditSubmitted(!!existing.resultsSentAt, existing.unlockedAt)) {
+      return NextResponse.json(
+        { error: "This assessment is locked because results have been sent. Ask an admin to unlock it." },
+        { status: 403 }
+      );
+    }
+    data.lastEditedAt = new Date();
+  } else if (submit === true) {
+    data.submittedAt = new Date();
   }
 
   const assessment = await prisma.managerAssessment.upsert({

@@ -32,6 +32,7 @@ export async function GET(
         createdAt: true,
         submittedAt: true,
         resultsSentAt: true,
+        unlockedAt: true,
         employee: { select: { id: true, name: true, email: true } },
         manager: { select: { id: true, name: true } },
       },
@@ -43,6 +44,7 @@ export async function GET(
         id: true,
         employeeId: true,
         submittedAt: true,
+        unlockedAt: true,
       },
     }),
   ]);
@@ -75,6 +77,9 @@ export async function GET(
       createdAt: ma.createdAt,
       submittedAt: ma.submittedAt,
       resultsSentAt: ma.resultsSentAt,
+      managerUnlockedAt: ma.unlockedAt,
+      selfAssessmentId: selfA?.id ?? null,
+      selfUnlockedAt: selfA?.unlockedAt ?? null,
     };
   });
 

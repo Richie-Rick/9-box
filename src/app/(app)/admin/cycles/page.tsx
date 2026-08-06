@@ -19,6 +19,9 @@ interface CycleAssessment {
   createdAt: string;
   submittedAt: string | null;
   resultsSentAt: string | null;
+  managerUnlockedAt: string | null;
+  selfAssessmentId: string | null;
+  selfUnlockedAt: string | null;
 }
 
 interface CycleDetail {
@@ -69,6 +72,7 @@ export default function AdminCyclesPage() {
   const [cycleDetail, setCycleDetail] = useState<CycleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [deletingCycleId, setDeletingCycleId] = useState<string | null>(null);
+  const [unlockingId, setUnlockingId] = useState<string | null>(null);
 
   // Create cycle form
   const { month: curMonth, year: curYear } = getCurrentPeriod();
@@ -131,6 +135,12 @@ export default function AdminCyclesPage() {
     loadCycles();
   }
 
+  async function loadDetail(cycleId: string) {
+    const res = await fetch(`/api/cycles/${cycleId}`);
+    const data = await res.json();
+    setCycleDetail(data);
+  }
+
   async function toggleExpand(cycleId: string) {
     if (expandedCycleId === cycleId) {
       setExpandedCycleId(null);
@@ -140,11 +150,23 @@ export default function AdminCyclesPage() {
     setExpandedCycleId(cycleId);
     setLoadingDetail(true);
     try {
-      const res = await fetch(`/api/cycles/${cycleId}`);
-      const data = await res.json();
-      setCycleDetail(data);
+      await loadDetail(cycleId);
     } finally {
       setLoadingDetail(false);
+    }
+  }
+
+  async function toggleUnlock(type: "self" | "manager", id: string, currentlyUnlocked: boolean) {
+    setUnlockingId(id);
+    try {
+      await fetch("/api/assessments/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, id, action: currentlyUnlocked ? "lock" : "unlock" }),
+      });
+      if (expandedCycleId) await loadDetail(expandedCycleId);
+    } finally {
+      setUnlockingId(null);
     }
   }
 
@@ -295,14 +317,46 @@ export default function AdminCyclesPage() {
                                 <td className="py-2 px-2 text-gray-600">{a.manager.name}</td>
                                 <td className="py-2 px-2 text-center">
                                   {a.selfStatus === "submitted" ? (
-                                    <span className="text-green-600">Done</span>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="text-green-600">Done</span>
+                                      {a.selfUnlockedAt && (
+                                        <Badge className="bg-amber-100 text-amber-800 border-amber-300">Unlocked</Badge>
+                                      )}
+                                      {a.resultsSentAt && a.selfAssessmentId && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-xs h-auto py-0.5"
+                                          onClick={() => toggleUnlock("self", a.selfAssessmentId!, !!a.selfUnlockedAt)}
+                                          disabled={unlockingId === a.selfAssessmentId}
+                                        >
+                                          {a.selfUnlockedAt ? "Lock" : "Unlock"}
+                                        </Button>
+                                      )}
+                                    </div>
                                   ) : (
                                     <span className="text-gray-400">—</span>
                                   )}
                                 </td>
                                 <td className="py-2 px-2 text-center">
                                   {a.managerStatus === "submitted" ? (
-                                    <span className="text-green-600">Done</span>
+                                    <div className="flex flex-col items-center gap-1">
+                                      <span className="text-green-600">Done</span>
+                                      {a.managerUnlockedAt && (
+                                        <Badge className="bg-amber-100 text-amber-800 border-amber-300">Unlocked</Badge>
+                                      )}
+                                      {a.resultsSentAt && (
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-xs h-auto py-0.5"
+                                          onClick={() => toggleUnlock("manager", a.id, !!a.managerUnlockedAt)}
+                                          disabled={unlockingId === a.id}
+                                        >
+                                          {a.managerUnlockedAt ? "Lock" : "Unlock"}
+                                        </Button>
+                                      )}
+                                    </div>
                                   ) : (
                                     <span className="text-gray-400">—</span>
                                   )}
