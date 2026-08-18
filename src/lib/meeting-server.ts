@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { MANAGER_ASSESSMENT_PRIORITY } from "./assessment-fields";
 
 /**
  * When BOTH the self and manager assessments for a cycle/employee are submitted,
@@ -14,6 +15,7 @@ export async function maybeMarkReadyToMeet(cycleId: string, employeeId: string):
     }),
     prisma.managerAssessment.findFirst({
       where: { cycleId, employeeId },
+      orderBy: [...MANAGER_ASSESSMENT_PRIORITY],
       select: { id: true, submittedAt: true, meetingStatus: true },
     }),
   ]);

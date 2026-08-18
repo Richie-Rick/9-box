@@ -22,7 +22,7 @@ import { ReviewNotesPanel } from "@/components/assessments/review-notes-panel";
 import { ActionsEditor } from "@/components/meetings/actions-editor";
 
 interface SummaryData {
-  employee: { id: string; name: string; email: string; jobTitle: string | null; team: string | null; role: string };
+  employee: { id: string; name: string; email: string; jobTitle: string | null; team: string | null; role: string; managerId: string | null };
   cycle: { id: string; month: number | null; quarter: number | null; year: number; status: string } | null;
   selfAssessment: {
     performance: number | null;
@@ -57,6 +57,7 @@ interface SummaryData {
     notes: string | null;
     submittedAt: string | null;
     resultsSentAt: string | null;
+    unlockedAt: string | null;
     meetingStatus: string;
     manager: { id: string; name: string };
   } | null;
@@ -154,7 +155,7 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
       if (res.ok) {
         setData((prev) => prev ? {
           ...prev,
-          managerAssessment: prev.managerAssessment ? { ...prev.managerAssessment, resultsSentAt: new Date().toISOString() } : null,
+          managerAssessment: prev.managerAssessment ? { ...prev.managerAssessment, resultsSentAt: new Date().toISOString(), unlockedAt: null } : null,
         } : null);
       }
     } finally {
@@ -168,7 +169,15 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
 
   const { employee, cycle, selfAssessment: self, managerAssessment: mgr } = data;
   const isManagerView = mgr?.manager?.id === session?.user?.id;
-  const canSendResults = isManagerView && mgr?.submittedAt && self?.submittedAt && !mgr?.resultsSentAt;
+  // Whoever currently owns this employee can share results, not just the person
+  // who wrote the review — otherwise a departed manager's review can never be
+  // re-shared. Mirrors the server rule in the send-results route.
+  const isElevated = session?.user?.role === "LEADERSHIP" || session?.user?.role === "ADMIN";
+  const canManage = isManagerView || isElevated || employee.managerId === session?.user?.id;
+  // An unlocked review is still shared; sending again republishes the edits.
+  const awaitingSend = !mgr?.resultsSentAt || !!mgr?.unlockedAt;
+  const canSendResults = canManage && mgr?.submittedAt && self?.submittedAt && awaitingSend;
+  const isResend = !!mgr?.resultsSentAt && !!mgr?.unlockedAt;
 
   const mgrValuesAlignment = mgr?.valCustomerFirst && mgr?.valStepIntoArena && mgr?.valFlockToProblems && mgr?.valGiveEnergy
     ? getValuesAlignment(mgr.valCustomerFirst, mgr.valStepIntoArena, mgr.valFlockToProblems, mgr.valGiveEnergy)
@@ -274,7 +283,7 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
         actions={
           canSendResults ? (
             <Button size="sm" variant="magenta" onClick={() => setShowSendConfirm(true)}>
-              Send Results to {employee.name}
+              {isResend ? "Re-send results" : `Send Results to ${employee.name}`}
             </Button>
           ) : undefined
         }
@@ -450,7 +459,9 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50">
           <div className="bg-paper border border-line rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
             <div className="eyebrow mb-1">Confirm</div>
-            <h3 className="serif text-xl text-ink mb-3">Send Results to {employee.name}?</h3>
+            <h3 className="serif text-xl text-ink mb-3">
+              {isResend ? `Re-send results to ${employee.name}?` : `Send Results to ${employee.name}?`}
+            </h3>
             {mgr?.meetingStatus !== "MEETING_COMPLETE" && (
               <div className="rounded-lg bg-paper-2 border border-amber/40 p-3 mb-4">
                 <p className="text-sm text-ink font-medium mb-1">Important</p>
@@ -460,7 +471,10 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
               </div>
             )}
             <p className="text-sm text-ink-2 mb-4">
-              This will make your assessment visible to {employee.name}. This action cannot be undone.
+              {isResend
+                ? `This republishes your edits to ${employee.name}.`
+                : `This will make your assessment visible to ${employee.name}.`}{" "}
+              You can withdraw results later from the assessment page if you need to.
             </p>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" size="sm" onClick={() => setShowSendConfirm(false)}>Cancel</Button>

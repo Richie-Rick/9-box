@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
+import { canManageEmployee } from "@/lib/permissions";
 
 export async function POST(request: Request) {
   const session = await auth();
@@ -9,7 +10,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { assessmentId } = await request.json();
+  const { assessmentId, withdraw } = await request.json();
   if (!assessmentId) {
     return NextResponse.json({ error: "assessmentId is required" }, { status: 400 });
   }
@@ -22,25 +23,36 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Assessment not found" }, { status: 404 });
   }
 
+  // The row's own manager, the employee's current manager, or leadership/admin.
   const isOwner = assessment.managerId === session.user.id;
-  const isElevated = session.user.role === "LEADERSHIP" || session.user.role === "ADMIN";
-  if (!isOwner && !isElevated) {
+  const canManage = await canManageEmployee(
+    session.user.id,
+    session.user.role,
+    assessment.employeeId
+  );
+  if (!isOwner && !canManage) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Clear the hard lock so the assessment can be edited and later re-sent.
-  // submittedAt is intentionally left unchanged.
+  // Withdrawing is the deliberate "take it back" action: it clears resultsSentAt
+  // and the employee loses access. Unlocking is only about editability — it
+  // leaves resultsSentAt alone so a review the employee has already been shown
+  // never disappears just because someone opened it to make a correction.
   const updated = await prisma.managerAssessment.update({
     where: { id: assessmentId },
-    data: { resultsSentAt: null },
+    data: withdraw
+      ? { resultsSentAt: null, unlockedAt: null }
+      : { unlockedAt: new Date() },
   });
 
   await logAudit({
     actorId: session.user.id,
-    action: "assessment.unlock",
+    action: withdraw ? "assessment.withdraw" : "assessment.unlock",
     entityType: "ManagerAssessment",
     entityId: assessmentId,
-    summary: "Unlocked completed assessment for editing",
+    summary: withdraw
+      ? "Withdrew results — no longer visible to the employee"
+      : "Unlocked completed assessment for editing (results stay visible)",
   });
 
   return NextResponse.json(updated);

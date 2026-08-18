@@ -81,6 +81,7 @@ export interface TeamMemberStatus {
   meetingStarted?: boolean;
   managerAssessmentId?: string | null;
   resultsSentAt: string | null;
+  unlockedAt: string | null;
 }
 
 export interface TaskCommentData {

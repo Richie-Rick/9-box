@@ -73,7 +73,10 @@ const TRACKING_DISPLAY: Record<
 };
 
 function memberColumn(m: TeamMemberStatus): ColumnKey {
-  if (m.resultsSentAt) return "REVIEW_COMPLETE";
+  // A review that was re-opened for editing is still shared, but it isn't
+  // complete until the manager sends the update — keep it out of the terminal
+  // column so it doesn't read as finished.
+  if (m.resultsSentAt && !m.unlockedAt) return "REVIEW_COMPLETE";
   return m.meetingStatus ?? "NOT_READY";
 }
 
@@ -430,7 +433,7 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
 
   async function changeStatus(employeeId: string, status: MeetingStatus, override = false) {
     const member = items.find((m) => m.id === employeeId);
-    if (!member?.managerAssessmentId || member.resultsSentAt || member.meetingStatus === status) return;
+    if (!member?.managerAssessmentId || (member.resultsSentAt && !member.unlockedAt) || member.meetingStatus === status) return;
     const prev = member.meetingStatus;
     setItems((ms) => ms.map((m) => (m.id === employeeId ? { ...m, meetingStatus: status } : m)));
     const res = await fetch("/api/meetings", {
@@ -452,7 +455,7 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
       });
       if (res.ok) {
         const id = sendTarget.id;
-        setItems((ms) => ms.map((m) => (m.id === id ? { ...m, resultsSentAt: new Date().toISOString() } : m)));
+        setItems((ms) => ms.map((m) => (m.id === id ? { ...m, resultsSentAt: new Date().toISOString(), unlockedAt: null } : m)));
         setSendTarget(null);
       }
     } finally {

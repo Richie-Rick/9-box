@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
+import { MANAGER_ASSESSMENT_PRIORITY } from "@/lib/assessment-fields";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -36,6 +37,10 @@ export async function GET(request: Request) {
     }),
     prisma.managerAssessment.findFirst({
       where: { cycleId, employeeId },
+      // A manager change can leave two rows for one cycle. Without an explicit
+      // order Postgres may hand back the blank one, and a review the employee
+      // was already sent reads as "Pending Manager Review".
+      orderBy: [...MANAGER_ASSESSMENT_PRIORITY],
       include: {
         manager: { select: { id: true, name: true } },
         meeting: {

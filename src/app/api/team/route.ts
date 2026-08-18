@@ -30,7 +30,7 @@ export async function GET(request: Request) {
       managerAssessmentsReceived: cycleId
         ? {
             where: { cycleId, managerId: session.user.id },
-            select: { id: true, submittedAt: true, resultsSentAt: true, meetingStatus: true, meeting: { select: { id: true } } },
+            select: { id: true, submittedAt: true, resultsSentAt: true, unlockedAt: true, meetingStatus: true, meeting: { select: { id: true } } },
           }
         : undefined,
     },
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   const teamStatus = reports.map((r) => {
     const selfAssessment = r.selfAssessments?.[0];
     const managerAssessment = r.managerAssessmentsReceived?.[0] as
-      | { id: string; submittedAt: Date | null; resultsSentAt: Date | null; meetingStatus: string; meeting?: { id: string } | null }
+      | { id: string; submittedAt: Date | null; resultsSentAt: Date | null; unlockedAt: Date | null; meetingStatus: string; meeting?: { id: string } | null }
       | undefined;
 
     return {
@@ -64,6 +64,7 @@ export async function GET(request: Request) {
       meetingStarted: !!managerAssessment?.meeting,
       managerAssessmentId: managerAssessment?.id ?? null,
       resultsSentAt: managerAssessment?.resultsSentAt ?? null,
+      unlockedAt: managerAssessment?.unlockedAt ?? null,
     };
   });
 

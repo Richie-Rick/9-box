@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
 import { logAudit, diffFields } from "@/lib/audit";
-import { MANAGER_ASSESSMENT_FIELDS, pickFields } from "@/lib/assessment-fields";
+import { MANAGER_ASSESSMENT_FIELDS, pickFields, isAssessmentLocked, MANAGER_ASSESSMENT_PRIORITY } from "@/lib/assessment-fields";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -32,7 +32,9 @@ export async function GET(request: Request) {
       manager: { select: { id: true, name: true } },
       cycle: true,
     },
-    orderBy: { createdAt: "desc" },
+    // Populated rows first — callers that take the head of this list must not
+    // land on a blank duplicate left behind by a manager change.
+    orderBy: [...MANAGER_ASSESSMENT_PRIORITY],
   });
 
   return NextResponse.json(assessments);
@@ -66,8 +68,39 @@ export async function POST(request: Request) {
   if (!existing && isElevated) {
     existing = await prisma.managerAssessment.findFirst({
       where: { cycleId, employeeId },
-      orderBy: { createdAt: "desc" },
+      orderBy: [...MANAGER_ASSESSMENT_PRIORITY],
     });
+  }
+
+  // A manager taking over an existing report inherits the row already holding
+  // this cycle's review rather than starting a blank one alongside it. Creating
+  // a second row splits the cycle in two: the completed, already-sent review
+  // stays behind while reads pick up the empty one, and the employee's results
+  // vanish. Reassignment is audited.
+  if (!existing) {
+    const orphaned = await prisma.managerAssessment.findFirst({
+      where: { cycleId, employeeId },
+      orderBy: [...MANAGER_ASSESSMENT_PRIORITY],
+    });
+    if (orphaned) {
+      const employee = await prisma.user.findUnique({
+        where: { id: employeeId },
+        select: { managerId: true },
+      });
+      if (employee?.managerId === session.user.id) {
+        existing = await prisma.managerAssessment.update({
+          where: { id: orphaned.id },
+          data: { managerId: session.user.id },
+        });
+        await logAudit({
+          actorId: session.user.id,
+          action: "assessment.reassign",
+          entityType: "ManagerAssessment",
+          entityId: orphaned.id,
+          summary: "Took over this cycle's review after a manager change",
+        });
+      }
+    }
   }
 
   // Writing your own assessment requires the employee to be a direct report.
@@ -89,8 +122,9 @@ export async function POST(request: Request) {
     }
   }
 
-  // Once results have been sent the assessment is locked — no further edits.
-  if (existing?.resultsSentAt) {
+  // Once results have been sent the assessment is locked — no further edits
+  // until a manager explicitly re-opens it.
+  if (existing && isAssessmentLocked(existing)) {
     return NextResponse.json(
       { error: "Results have already been sent; this assessment is locked." },
       { status: 409 }

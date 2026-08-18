@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
 import { logAudit, diffFields } from "@/lib/audit";
-import { MANAGER_ASSESSMENT_FIELDS, pickFields } from "@/lib/assessment-fields";
+import { MANAGER_ASSESSMENT_FIELDS, pickFields, isAssessmentLocked } from "@/lib/assessment-fields";
 
 export async function GET(
   _request: Request,
@@ -58,8 +58,9 @@ export async function PUT(
     return NextResponse.json({ error: "Not found or not yours" }, { status: 404 });
   }
 
-  // Once results have been sent the assessment is locked — no further edits.
-  if (existing.resultsSentAt) {
+  // Once results have been sent the assessment is locked — no further edits
+  // until a manager explicitly re-opens it.
+  if (isAssessmentLocked(existing)) {
     return NextResponse.json(
       { error: "Results have already been sent; this assessment is locked." },
       { status: 409 }

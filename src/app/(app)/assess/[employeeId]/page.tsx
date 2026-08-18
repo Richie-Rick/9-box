@@ -20,7 +20,10 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [resultsSent, setResultsSent] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [confirmUnlock, setConfirmUnlock] = useState(false);
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
   const [editing, setEditing] = useState(false);
   const [employeeName, setEmployeeName] = useState("");
   // Whether every key metric has a saved actual result (gates step 1).
@@ -36,6 +39,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
           setAssessmentId(a.id);
           setIsSubmitted(!!a.submittedAt);
           setResultsSent(!!a.resultsSentAt);
+          setUnlocked(!!a.unlockedAt);
           setEmployeeName(a.employee?.name || "");
           setValues({
             performance: a.performance,
@@ -85,6 +89,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
     }
   }, [cycleId, employeeId, values]);
 
+  // Re-opening a shared review keeps it visible to the employee — only an
+  // explicit withdraw takes it back.
   const unlockAndEdit = useCallback(async () => {
     if (!assessmentId) return;
     setUnlocking(true);
@@ -95,17 +101,38 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         body: JSON.stringify({ assessmentId }),
       });
       if (res.ok) {
-        setResultsSent(false);
+        setUnlocked(true);
         setEditing(true);
       }
     } finally {
       setUnlocking(false);
+      setConfirmUnlock(false);
+    }
+  }, [assessmentId]);
+
+  const withdrawResults = useCallback(async () => {
+    if (!assessmentId) return;
+    setUnlocking(true);
+    try {
+      const res = await fetch("/api/assessments/manager/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assessmentId, withdraw: true }),
+      });
+      if (res.ok) {
+        setResultsSent(false);
+        setUnlocked(false);
+        setEditing(true);
+      }
+    } finally {
+      setUnlocking(false);
+      setConfirmWithdraw(false);
     }
   }, [assessmentId]);
 
   // Locked once results are sent, or after submit until the manager re-opens
   // it for editing. While locked the form is read-only and never gates Next.
-  const locked = resultsSent || (isSubmitted && !editing);
+  const locked = (resultsSent && !unlocked) || (isSubmitted && !editing);
 
   const steps: StepConfig[] = [
     {
@@ -216,17 +243,36 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         title={<>Assess <em>{employeeName || "report"}.</em></>}
         sub={employeeName ? `Rate ${employeeName} across performance, growth, values and engagement.` : undefined}
       />
-      {resultsSent ? (
-        <div className="max-w-2xl mx-auto mb-6 flex items-center justify-between gap-3 rounded-lg bg-paper-2 border border-line p-4">
+      {resultsSent && unlocked ? (
+        <div className="max-w-2xl mx-auto mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg bg-paper-2 border border-amber/40 p-4">
           <p className="text-sm text-ink-2">
-            Results have been sent to the employee. Unlock to edit this assessment — changes are recorded in the audit log, and you can re-send results afterward.
+            You are editing a review {employeeName || "this employee"} can already see. Your changes
+            are visible to them as you save, and are recorded in the audit log. Send results again
+            to confirm the update, or withdraw them to take the review back.
+          </p>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="shrink-0"
+            disabled={unlocking}
+            onClick={() => setConfirmWithdraw(true)}
+          >
+            Withdraw results
+          </Button>
+        </div>
+      ) : resultsSent ? (
+        <div className="max-w-2xl mx-auto mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg bg-paper-2 border border-line p-4">
+          <p className="text-sm text-ink-2">
+            Results have been sent and {employeeName || "the employee"} can see this review. Unlock
+            to edit it — the review stays visible to them throughout, and changes are recorded in
+            the audit log.
           </p>
           <Button
             size="sm"
             variant="magenta"
             className="shrink-0"
             disabled={unlocking}
-            onClick={unlockAndEdit}
+            onClick={() => setConfirmUnlock(true)}
           >
             {unlocking ? "Unlocking..." : "Unlock & edit"}
           </Button>
@@ -253,6 +299,46 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         isSubmitted={locked}
         disabled={locked}
       />
+
+      {confirmUnlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50">
+          <div className="bg-paper border border-line rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="eyebrow mb-1">Confirm</div>
+            <h3 className="serif text-xl text-ink mb-3">Unlock this review for editing?</h3>
+            <p className="text-sm text-ink-2 mb-4">
+              {employeeName || "The employee"} can already see this review and will keep seeing it,
+              including any edits you make. Every change is recorded in the audit log. If you want to
+              take the review back instead, withdraw the results.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" size="sm" onClick={() => setConfirmUnlock(false)}>Cancel</Button>
+              <Button size="sm" variant="magenta" disabled={unlocking} onClick={unlockAndEdit}>
+                {unlocking ? "Unlocking..." : "Unlock & edit"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmWithdraw && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50">
+          <div className="bg-paper border border-line rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <div className="eyebrow mb-1">Confirm</div>
+            <h3 className="serif text-xl text-ink mb-3">Withdraw results?</h3>
+            <p className="text-sm text-ink-2 mb-4">
+              {employeeName || "The employee"} will immediately lose access to this review, including
+              their ratings, your evidence and your notes. You can send results again once you are
+              ready.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" size="sm" onClick={() => setConfirmWithdraw(false)}>Cancel</Button>
+              <Button size="sm" variant="magenta" disabled={unlocking} onClick={withdrawResults}>
+                {unlocking ? "Withdrawing..." : "Withdraw results"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
