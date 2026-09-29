@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatCyclePeriod, getCurrentPeriod } from "@/lib/utils";
 import type { CycleData } from "@/types";
 import { StageBadge } from "@/components/ui/stage-badge";
+import { StageBoard } from "@/components/team/stage-board";
 import type { Stage } from "@/lib/stages";
 
 interface CycleAssessment {
@@ -60,6 +61,7 @@ export default function AdminCyclesPage() {
   const [cycleDetail, setCycleDetail] = useState<CycleDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [deletingCycleId, setDeletingCycleId] = useState<string | null>(null);
+  const [detailView, setDetailView] = useState<"table" | "board">("table");
 
   // Create cycle form
   const { month: curMonth, year: curYear } = getCurrentPeriod();
@@ -269,7 +271,29 @@ export default function AdminCyclesPage() {
                         </div>
                       </div>
 
+                      <div className="flex justify-end">
+                        <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+                          <button onClick={() => setDetailView("table")} className={`px-3 py-1.5 ${detailView === "table" ? "bg-visory-navy text-white" : "bg-white text-visory-navy hover:bg-gray-50"}`}>Table</button>
+                          <button onClick={() => setDetailView("board")} className={`px-3 py-1.5 ${detailView === "board" ? "bg-visory-navy text-white" : "bg-white text-visory-navy hover:bg-gray-50"}`}>Board</button>
+                        </div>
+                      </div>
+
+                      {detailView === "board" && (
+                        <StageBoard
+                          onOpen={(card) => router.push(`/summary/${card.id}?cycleId=${cycle.id}`)}
+                          cards={cycleDetail.assessments.map((a) => ({
+                            id: a.employee.id,
+                            name: a.employee.name,
+                            subtitle: `Manager: ${a.manager.name}`,
+                            stage: a.stage,
+                            selfStatus: a.selfStatus === "submitted" ? "submitted" : "not_started",
+                            managerStatus: a.managerStatus === "submitted" ? "submitted" : "not_started",
+                          }))}
+                        />
+                      )}
+
                       {/* Assessment table */}
+                      {detailView === "table" && (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead>
@@ -312,6 +336,7 @@ export default function AdminCyclesPage() {
                           </tbody>
                         </table>
                       </div>
+                      )}
 
                       {cycleDetail.assessments.length === 0 && (
                         <p className="text-center text-sm text-gray-500 py-2">

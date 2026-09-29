@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +59,22 @@ export default function AdminUsersPage() {
   const [copiedJoinLink, setCopiedJoinLink] = useState(false);
   const [pasteData, setPasteData] = useState("");
   const [jobRoles, setJobRoles] = useState<JobRoleOption[]>([]);
+  const searchParams = useSearchParams();
+  const filters = {
+    q: searchParams.get("q") ?? "",
+    role: searchParams.get("role") ?? "",
+    team: searchParams.get("team") ?? "",
+    manager: searchParams.get("manager") ?? "",
+    status: searchParams.get("status") ?? "",
+    sort: searchParams.get("sort") ?? "name",
+  };
+
+  function setFilter(key: keyof typeof filters, value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) params.set(key, value);
+    else params.delete(key);
+    router.replace(`/admin/users${params.toString() ? `?${params.toString()}` : ""}`);
+  }
 
   useEffect(() => {
     if (session?.user?.role !== "ADMIN") {
@@ -199,6 +215,27 @@ export default function AdminUsersPage() {
 
   const managers = users.filter((u) => ["MANAGER", "AREA_LEAD", "LEADERSHIP", "ADMIN"].includes(u.role));
   const pendingInvitations = invitations.filter((i) => !i.usedAt);
+  const teamOptions = [...new Set(users.map((u) => u.team).filter(Boolean) as string[])].sort();
+
+  const q = filters.q.trim().toLowerCase();
+  const visibleUsers = users
+    .filter((u) => {
+      if (q && !u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false;
+      if (filters.role && u.role !== filters.role) return false;
+      if (filters.team && (u.team ?? "") !== filters.team) return false;
+      if (filters.manager && (u.managerId ?? "") !== filters.manager) return false;
+      if (filters.status === "active" && !u.isActive) return false;
+      if (filters.status === "inactive" && u.isActive) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (filters.sort === "role") return a.role.localeCompare(b.role) || a.name.localeCompare(b.name);
+      if (filters.sort === "team") return (a.team ?? "").localeCompare(b.team ?? "") || a.name.localeCompare(b.name);
+      if (filters.sort === "manager") return (a.manager?.name ?? "").localeCompare(b.manager?.name ?? "") || a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name);
+    });
+  const hasFilters = !!(filters.q || filters.role || filters.team || filters.manager || filters.status);
+  const filterSelectClass = "rounded-lg border border-gray-300 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-visory";
 
   return (
     <div className="space-y-6">
@@ -422,11 +459,54 @@ export default function AdminUsersPage() {
       {/* Existing Users */}
       <Card>
         <CardHeader>
-          <h2 className="text-lg font-semibold">Active Users</h2>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Users</h2>
+              <span className="text-xs text-gray-500">{visibleUsers.length} of {users.length} shown</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="search"
+                value={filters.q}
+                onChange={(e) => setFilter("q", e.target.value)}
+                placeholder="Search name or email"
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-xs w-52 focus:outline-none focus:ring-2 focus:ring-visory"
+              />
+              <select value={filters.role} onChange={(e) => setFilter("role", e.target.value)} className={filterSelectClass}>
+                <option value="">All access roles</option>
+                {ROLES.map((r) => <option key={r} value={r}>{getRoleDisplayName(r)}</option>)}
+              </select>
+              <select value={filters.team} onChange={(e) => setFilter("team", e.target.value)} className={filterSelectClass}>
+                <option value="">All teams</option>
+                {teamOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <select value={filters.manager} onChange={(e) => setFilter("manager", e.target.value)} className={filterSelectClass}>
+                <option value="">All managers</option>
+                {managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+              <select value={filters.status} onChange={(e) => setFilter("status", e.target.value)} className={filterSelectClass}>
+                <option value="">Active and inactive</option>
+                <option value="active">Active only</option>
+                <option value="inactive">Inactive only</option>
+              </select>
+              <select value={filters.sort} onChange={(e) => setFilter("sort", e.target.value)} className={filterSelectClass}>
+                <option value="name">Sort by name</option>
+                <option value="role">Sort by access role</option>
+                <option value="team">Sort by team</option>
+                <option value="manager">Sort by manager</option>
+              </select>
+              {hasFilters && (
+                <Button size="sm" variant="ghost" onClick={() => router.replace("/admin/users")}>Clear</Button>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="divide-y divide-gray-100">
-            {users.map((user) => (
+            {visibleUsers.length === 0 && (
+              <p className="py-4 text-center text-sm text-gray-500">No users match these filters.</p>
+            )}
+            {visibleUsers.map((user) => (
               <div key={user.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex-1">
                   <div className="flex items-center gap-2">

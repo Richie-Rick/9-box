@@ -10,6 +10,7 @@ import { MultiSelect } from "@/components/ui/multi-select";
 import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
 import { ShareModal } from "@/components/assessments/share-modal";
 import { StageBadge } from "@/components/ui/stage-badge";
+import { StageBoard, BoardAction } from "@/components/team/stage-board";
 import type { CycleData, TeamMemberStatus, ManagerAssessmentData } from "@/types";
 import { formatCyclePeriod } from "@/lib/utils";
 import {
@@ -299,6 +300,7 @@ function ManagerDashboard() {
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
   const [shareConfirm, setShareConfirm] = useState<TeamMemberStatus | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [rosterView, setRosterView] = useState<"list" | "board">("list");
 
   useEffect(() => {
     fetch("/api/cycles")
@@ -526,9 +528,45 @@ function ManagerDashboard() {
           {/* Team Roster */}
           <Card>
             <CardHeader>
-              <h2 className="text-lg font-semibold">Team Roster</h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold">Team Roster</h2>
+                <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+                  <button onClick={() => setRosterView("list")} className={`px-3 py-1.5 ${rosterView === "list" ? "bg-visory-navy text-white" : "bg-white text-visory-navy hover:bg-gray-50"}`}>List</button>
+                  <button onClick={() => setRosterView("board")} className={`px-3 py-1.5 ${rosterView === "board" ? "bg-visory-navy text-white" : "bg-white text-visory-navy hover:bg-gray-50"}`}>Board</button>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
+              {rosterView === "board" ? (
+                <StageBoard
+                  emptyText="No team members found. Ask your admin to assign employees to you."
+                  onOpen={(card) => router.push(`/team/${card.id}`)}
+                  cards={team.map((member) => ({
+                    id: member.id,
+                    name: member.name,
+                    subtitle: [member.jobTitle, member.team].filter(Boolean).join(" · ") || member.email,
+                    stage: member.stage,
+                    selfStatus: member.selfAssessmentStatus,
+                    managerStatus: member.managerAssessmentStatus,
+                    actions: (
+                      <>
+                        {member.managerAssessmentStatus !== "submitted" && (
+                          <BoardAction variant="primary" onClick={() => router.push(`/assess/${member.id}?cycleId=${cycle.id}`)}>Assess</BoardAction>
+                        )}
+                        {member.managerAssessmentStatus === "submitted" && !member.sharedAt && (
+                          <BoardAction variant="primary" onClick={() => setShareConfirm(member)}>Share</BoardAction>
+                        )}
+                        {member.sharedAt && !member.oneOnOneCompletedAt && (
+                          <BoardAction onClick={() => router.push(`/summary/${member.id}?cycleId=${cycle.id}&mode=meeting`)}>Meeting</BoardAction>
+                        )}
+                        {member.managerAssessmentStatus === "submitted" && (
+                          <BoardAction variant="ghost" onClick={() => router.push(`/summary/${member.id}?cycleId=${cycle.id}`)}>Summary</BoardAction>
+                        )}
+                      </>
+                    ),
+                  }))}
+                />
+              ) : (
               <div className="divide-y divide-gray-100">
                 {team.map((member) => (
                   <div key={member.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -575,6 +613,7 @@ function ManagerDashboard() {
                   </p>
                 )}
               </div>
+              )}
             </CardContent>
           </Card>
         </>
