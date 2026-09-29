@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import {
@@ -9,6 +9,7 @@ import {
   SELF_REQUIRED_FIELDS,
 } from "@/lib/assessment-fields";
 import { SECTIONS, sectionRatingFields } from "@/lib/assessment-sections";
+import { notifySelfSubmitted } from "@/lib/notifications";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -147,6 +148,10 @@ export async function POST(request: Request) {
       where: { cycleId, employeeId: session.user.id, submittedAt: { not: null } },
     });
     bothComplete = !!managerAssessment;
+  }
+
+  if (submit && !existing?.submittedAt) {
+    after(() => notifySelfSubmitted(assessment.id).catch((err) => console.error("self_submitted email failed", err)));
   }
 
   return NextResponse.json({ ...assessment, bothComplete });

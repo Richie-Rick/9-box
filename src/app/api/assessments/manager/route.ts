@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { notifyReviewUpdated } from "@/lib/notifications";
 import { isManager } from "@/lib/permissions";
 import {
   sanitizeAssessmentInput,
@@ -131,6 +132,7 @@ export async function POST(request: Request) {
     writeData.submittedAt = new Date();
   }
 
+  let revisionId: string | null = null;
   const assessment = await prisma.$transaction(async (tx) => {
     const saved = await tx.managerAssessment.upsert({
       where: uniqueWhere,
@@ -143,7 +145,7 @@ export async function POST(request: Request) {
       },
     });
     if (revision) {
-      await tx.assessmentRevision.create({
+      const created = await tx.assessmentRevision.create({
         data: {
           managerAssessmentId: saved.id,
           changedById: session.user.id,
@@ -152,9 +154,15 @@ export async function POST(request: Request) {
           after: revision.after,
         },
       });
+      revisionId = created.id;
     }
     return saved;
   });
+
+  if (revisionId && existing?.sharedAt) {
+    const id = revisionId;
+    after(() => notifyReviewUpdated(assessment.id, id).catch((err) => console.error("review_updated email failed", err)));
+  }
 
   let bothComplete = false;
   if (assessment.submittedAt) {

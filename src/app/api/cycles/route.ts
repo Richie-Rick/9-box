@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/permissions";
+import { notifyCycleOpened } from "@/lib/notifications";
 
 export async function GET() {
   const session = await auth();
@@ -25,11 +26,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { month, year } = await request.json();
+  const { month, year, selfDueAt, managerDueAt, meetingDueAt, sendEmails } = await request.json();
 
   if (!month || !year || month < 1 || month > 12) {
     return NextResponse.json({ error: "Valid month and year are required" }, { status: 400 });
   }
+
+  const parseDate = (value: unknown, fallbackDay: number): Date => {
+    if (typeof value === "string" && value) {
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return d;
+    }
+    return new Date(year, month - 1, fallbackDay, 17, 0, 0);
+  };
 
   const existing = await prisma.assessmentCycle.findUnique({
     where: { month_year: { month, year } },
@@ -39,7 +48,13 @@ export async function POST(request: Request) {
   }
 
   const cycle = await prisma.assessmentCycle.create({
-    data: { month, year },
+    data: {
+      month,
+      year,
+      selfDueAt: parseDate(selfDueAt, 7),
+      managerDueAt: parseDate(managerDueAt, 14),
+      meetingDueAt: parseDate(meetingDueAt, 21),
+    },
   });
 
   // Auto-create self-assessments for all active users
@@ -65,6 +80,10 @@ export async function POST(request: Request) {
   await prisma.selfAssessment.createMany({ data: selfAssessmentData });
   if (managerAssessmentData.length > 0) {
     await prisma.managerAssessment.createMany({ data: managerAssessmentData });
+  }
+
+  if (sendEmails !== false) {
+    after(() => notifyCycleOpened(cycle.id).catch((err) => console.error("cycle_opened emails failed", err)));
   }
 
   return NextResponse.json(cycle, { status: 201 });
@@ -100,15 +119,26 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { id, status } = await request.json();
+  const { id, status, selfDueAt, managerDueAt, meetingDueAt } = await request.json();
 
-  if (!id || !["OPEN", "CLOSED"].includes(status)) {
-    return NextResponse.json({ error: "Valid id and status are required" }, { status: 400 });
+  if (!id) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
   }
+  const data: Record<string, unknown> = {};
+  if (status !== undefined) {
+    if (!["OPEN", "CLOSED"].includes(status)) {
+      return NextResponse.json({ error: "Valid status is required" }, { status: 400 });
+    }
+    data.status = status;
+  }
+  const toDate = (value: unknown) => (typeof value === "string" && value ? new Date(value) : null);
+  if (selfDueAt !== undefined) data.selfDueAt = toDate(selfDueAt);
+  if (managerDueAt !== undefined) data.managerDueAt = toDate(managerDueAt);
+  if (meetingDueAt !== undefined) data.meetingDueAt = toDate(meetingDueAt);
 
   const cycle = await prisma.assessmentCycle.update({
     where: { id },
-    data: { status },
+    data,
   });
 
   return NextResponse.json(cycle);

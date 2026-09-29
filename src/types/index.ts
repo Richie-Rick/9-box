@@ -15,6 +15,9 @@ export interface CycleData {
   month: number;
   year: number;
   status: "OPEN" | "CLOSED";
+  selfDueAt?: string | null;
+  managerDueAt?: string | null;
+  meetingDueAt?: string | null;
   createdAt: string;
 }
 

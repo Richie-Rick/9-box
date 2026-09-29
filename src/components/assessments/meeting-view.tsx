@@ -164,6 +164,27 @@ export function MeetingView({
           </div>
         </div>
         <div className="flex items-center gap-2 no-print">
+          {!oneOnOneCompletedAt && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={async () => {
+                  const res = await fetch(`/api/assessments/manager/ics?assessmentId=${assessmentId}`);
+                  const data = await res.json();
+                  if (data.googleUrl) window.open(data.googleUrl, "_blank", "noopener");
+                }}
+              >
+                Schedule 1:1
+              </Button>
+              <a
+                href={`/api/assessments/manager/ics?assessmentId=${assessmentId}&format=ics`}
+                className="text-xs text-gray-500 underline underline-offset-2 hover:text-visory-navy"
+              >
+                .ics
+              </a>
+            </>
+          )}
           <Button variant="ghost" size="sm" onClick={() => window.print()}>Print</Button>
           <Button variant="secondary" size="sm" onClick={onExit}>Exit meeting mode</Button>
         </div>

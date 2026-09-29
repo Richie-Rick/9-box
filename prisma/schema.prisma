@@ -68,6 +68,7 @@ model User {
   metricResults              KeyMetricResult[]  @relation("EmployeeMetricResults")
   metricTemplatesCreated     MetricTemplate[]
   goalTemplatesCreated       GoalTemplate[]
+  notifications              NotificationLog[]
   keyMetrics                 KeyMetric[]        @relation("EmployeeKeyMetrics")
   keyMetricsCreated          KeyMetric[]        @relation("KeyMetricCreator")
 
@@ -149,6 +150,18 @@ model KeyMetricResult {
   @@index([cycleId])
 }
 
+model NotificationLog {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type   String
+  refId  String
+  sentAt DateTime @default(now())
+
+  @@unique([userId, type, refId])
+  @@index([userId])
+}
+
 model Invitation {
   id        String   @id @default(cuid())
   email     String
@@ -166,11 +179,14 @@ model Invitation {
 }
 
 model AssessmentCycle {
-  id        String      @id @default(cuid())
-  month     Int
-  year      Int
-  status    CycleStatus @default(OPEN)
-  createdAt DateTime    @default(now())
+  id           String      @id @default(cuid())
+  month        Int
+  year         Int
+  status       CycleStatus @default(OPEN)
+  selfDueAt    DateTime?
+  managerDueAt DateTime?
+  meetingDueAt DateTime?
+  createdAt    DateTime    @default(now())
 
   managerAssessments ManagerAssessment[]
   selfAssessments    SelfAssessment[]

@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { notifyMeetingCompleted } from "@/lib/notifications";
 
 /** Marks the 1:1 as held. Notes and agreed actions become visible to the employee. */
 export async function POST(request: Request) {
@@ -35,6 +36,8 @@ export async function POST(request: Request) {
     },
     select: { id: true, oneOnOneComplete: true, oneOnOneCompletedAt: true, sharedAt: true },
   });
+
+  after(() => notifyMeetingCompleted(updated.id).catch((err) => console.error("meeting_completed email failed", err)));
 
   return NextResponse.json(updated);
 }

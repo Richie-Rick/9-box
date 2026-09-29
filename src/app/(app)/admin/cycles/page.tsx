@@ -68,6 +68,17 @@ export default function AdminCyclesPage() {
   const [selectedMonth, setSelectedMonth] = useState(curMonth);
   const [selectedYear, setSelectedYear] = useState(curYear);
   const [createError, setCreateError] = useState("");
+  const [dueDates, setDueDates] = useState<{ self: string; manager: string; meeting: string } | null>(null);
+  const [sendEmails, setSendEmails] = useState(true);
+  const [reminderState, setReminderState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [reminderSummary, setReminderSummary] = useState("");
+
+  const toInputDate = (y: number, m: number, d: number) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  const effectiveDueDates = dueDates ?? {
+    self: toInputDate(selectedYear, selectedMonth, 7),
+    manager: toInputDate(selectedYear, selectedMonth, 14),
+    meeting: toInputDate(selectedYear, selectedMonth, 21),
+  };
 
   useEffect(() => {
     if (session?.user?.role !== "ADMIN") {
@@ -87,9 +98,17 @@ export default function AdminCyclesPage() {
     const res = await fetch("/api/cycles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
+      body: JSON.stringify({
+        month: selectedMonth,
+        year: selectedYear,
+        selfDueAt: `${effectiveDueDates.self}T17:00:00`,
+        managerDueAt: `${effectiveDueDates.manager}T17:00:00`,
+        meetingDueAt: `${effectiveDueDates.meeting}T17:00:00`,
+        sendEmails,
+      }),
     });
     if (res.ok) {
+      setDueDates(null);
       loadCycles();
     } else {
       const err = await res.json();
@@ -144,6 +163,40 @@ export default function AdminCyclesPage() {
   // Generate year options: current year -1 to +1
   const yearOptions = [curYear - 1, curYear, curYear + 1];
 
+  async function sendRemindersNow() {
+    setReminderState("sending");
+    setReminderSummary("");
+    try {
+      const res = await fetch("/api/cron/reminders", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setReminderState("error");
+        setReminderSummary(data.error || "Could not send reminders");
+        return;
+      }
+      const totals = (data.cycles as { selfReminders: number; managerReminders: number; shareReminders: number; meetingReminders: number }[]).reduce(
+        (acc, c) => acc + c.selfReminders + c.managerReminders + c.shareReminders + c.meetingReminders,
+        0
+      );
+      setReminderState("done");
+      setReminderSummary(`${totals} reminder${totals === 1 ? "" : "s"} sent. Each person gets at most one per kind per day.`);
+    } catch {
+      setReminderState("error");
+      setReminderSummary("Could not reach the server");
+    }
+  }
+
+  async function updateDueDate(cycleId: string, field: "selfDueAt" | "managerDueAt" | "meetingDueAt", value: string) {
+    await fetch("/api/cycles", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: cycleId, [field]: value ? `${value}T17:00:00` : null }),
+    });
+    loadCycles();
+  }
+
+  const dateInputValue = (value: string | null | undefined) => (value ? value.slice(0, 10) : "");
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -154,7 +207,7 @@ export default function AdminCyclesPage() {
         <div className="flex items-center gap-2">
           <select
             value={selectedMonth}
-            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            onChange={(e) => { setSelectedMonth(Number(e.target.value)); setDueDates(null); }}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-visory"
           >
             {MONTHS.map((name, i) => (
@@ -163,7 +216,7 @@ export default function AdminCyclesPage() {
           </select>
           <select
             value={selectedYear}
-            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            onChange={(e) => { setSelectedYear(Number(e.target.value)); setDueDates(null); }}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-visory"
           >
             {yearOptions.map((y) => (
@@ -175,6 +228,47 @@ export default function AdminCyclesPage() {
           </Button>
         </div>
       </div>
+
+      <Card>
+        <CardContent className="py-4">
+          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {([
+                ["self", "Self-assessments due"],
+                ["manager", "Manager reviews due"],
+                ["meeting", "1:1s due"],
+              ] as const).map(([key, label]) => (
+                <div key={key}>
+                  <label className="block text-xs text-gray-500 mb-1">{label}</label>
+                  <input
+                    type="date"
+                    value={effectiveDueDates[key]}
+                    onChange={(e) => setDueDates({ ...effectiveDueDates, [key]: e.target.value })}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-visory"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2 text-xs text-gray-600">
+                <input type="checkbox" checked={sendEmails} onChange={(e) => setSendEmails(e.target.checked)} className="rounded border-gray-300 text-visory focus:ring-visory" />
+                Email everyone when the new cycle opens
+              </label>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={sendRemindersNow} disabled={reminderState === "sending"}>
+                  {reminderState === "sending" ? "Sending..." : "Send reminders now"}
+                </Button>
+                {reminderSummary && (
+                  <span className={`text-xs ${reminderState === "error" ? "text-red-600" : "text-green-700"}`}>{reminderSummary}</span>
+                )}
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mt-3">
+            Reminders also go out automatically on Sunday and Monday mornings to anyone behind, escalating to the manager&apos;s manager three days after a due date.
+          </p>
+        </CardContent>
+      </Card>
 
       {createError && (
         <div className="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
@@ -208,6 +302,23 @@ export default function AdminCyclesPage() {
                     </p>
                   </div>
                 </button>
+                <div className="hidden lg:flex items-center gap-3 text-xs text-gray-500">
+                  {([
+                    ["selfDueAt", "Self"],
+                    ["managerDueAt", "Manager"],
+                    ["meetingDueAt", "1:1"],
+                  ] as const).map(([field, label]) => (
+                    <label key={field} className="flex items-center gap-1">
+                      {label}
+                      <input
+                        type="date"
+                        value={dateInputValue(cycle[field])}
+                        onChange={(e) => updateDueDate(cycle.id, field, e.target.value)}
+                        className="rounded border border-gray-200 px-1.5 py-0.5 text-xs"
+                      />
+                    </label>
+                  ))}
+                </div>
                 <div className="flex items-center gap-3">
                   <Badge
                     className={

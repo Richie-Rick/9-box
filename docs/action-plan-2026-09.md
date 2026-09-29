@@ -1,5 +1,7 @@
 # Performance & Growth app: action plan
 
+> **Status (29 Sep 2026):** Phases 0 to 5 are built on branch `claude/optimistic-volta-rcv5sg`, one commit per phase. 6.1 (360 feedback) remains open. Decisions taken with the recommended defaults: hybrid review flow (1.3), job-title-based role templates (3.2), meeting notes visible to the employee after the 1:1 (2.3), the proposed tier mapping (4.1), edits after sharing allowed with a reason (2.2).
+
 Date: 29 September 2026
 Builds on `docs/feedback-review-2026-09.md` (item codes B1 to B8 and A to O refer to that document) plus the three additions and the proposed flow change from the follow-up discussion.
 
