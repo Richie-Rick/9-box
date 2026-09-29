@@ -40,6 +40,13 @@ interface AssessmentFormProps {
   error?: string | null;
   /** Content shown above the form in both layouts. */
   header?: React.ReactNode;
+  /** Post-submission editing: unlocked by the page, saved with onSave. */
+  editing?: boolean;
+  onStartEditing?: () => void;
+  onCancelEditing?: () => void;
+  submittedAt?: string | null;
+  /** Shown next to the submitted banner, e.g. edit count. */
+  submittedNote?: string;
 }
 
 const LAYOUT_KEY = "assessment-layout";
@@ -85,6 +92,11 @@ export function AssessmentForm({
   editableWhenSubmitted = [],
   error,
   header,
+  editing = false,
+  onStartEditing,
+  onCancelEditing,
+  submittedAt,
+  submittedNote,
 }: AssessmentFormProps) {
   const [layout, setLayout] = useLayout();
   const [currentStep, setCurrentStep] = useState(0);
@@ -115,8 +127,24 @@ export function AssessmentForm({
   const isFirst = safeStep === 0;
 
   function isLocked(questionId: string): boolean {
-    return !!isSubmitted && !editableWhenSubmitted.includes(questionId);
+    return !!isSubmitted && !editing && !editableWhenSubmitted.includes(questionId);
   }
+
+  const submittedBanner = isSubmitted && (
+    <div className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 flex flex-wrap items-center justify-between gap-2">
+      <p className="text-sm text-green-900">
+        Submitted{submittedAt ? ` ${new Date(submittedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}` : ""}.
+        {editing ? " Editing: ratings and comments are unlocked." : " Ratings are locked."}
+        {submittedNote && <span className="text-green-800"> {submittedNote}</span>}
+      </p>
+      {onStartEditing && !editing && (
+        <Button size="sm" variant="secondary" onClick={onStartEditing}>Edit</Button>
+      )}
+      {editing && onCancelEditing && (
+        <Button size="sm" variant="ghost" onClick={onCancelEditing}>Cancel edit</Button>
+      )}
+    </div>
+  );
 
   function renderQuestion(question: FormQuestion, compact = false) {
     const locked = isLocked(question.id);
@@ -186,14 +214,19 @@ export function AssessmentForm({
     </div>
   );
 
+  const saveLabel = saving ? "Saving..." : editing ? "Save changes" : isSubmitted ? "Save responses" : "Save Draft";
+  const saveDisabled = saving || (isSubmitted && !editing && editableWhenSubmitted.length === 0);
+
   const actions = (
     <div className="flex items-center gap-3">
-      <Button variant="secondary" onClick={onSave} disabled={saving || (isSubmitted && editableWhenSubmitted.length === 0)}>
-        {saving ? "Saving..." : isSubmitted ? "Save responses" : "Save Draft"}
+      <Button variant={editing ? "primary" : "secondary"} onClick={onSave} disabled={saveDisabled}>
+        {saveLabel}
       </Button>
-      <Button onClick={onSubmit} disabled={!canSubmit} title={missing.length > 0 ? `${missing.length} required rating(s) missing` : undefined}>
-        {isSubmitted ? "Submitted" : submitting ? "Submitting..." : "Submit"}
-      </Button>
+      {!editing && (
+        <Button onClick={onSubmit} disabled={!canSubmit} title={missing.length > 0 ? `${missing.length} required rating(s) missing` : undefined}>
+          {isSubmitted ? "Submitted" : submitting ? "Submitting..." : "Submit"}
+        </Button>
+      )}
     </div>
   );
 
@@ -205,6 +238,7 @@ export function AssessmentForm({
           {layoutToggle}
         </div>
         {header}
+        {submittedBanner}
         <div className="lg:grid lg:grid-cols-[180px_1fr] lg:gap-6">
           <nav className="hidden lg:block sticky top-24 self-start">
             <ul className="space-y-1">
@@ -260,6 +294,7 @@ export function AssessmentForm({
         {layoutToggle}
       </div>
       {header}
+      {submittedBanner}
       <div className="mb-6">
         <div className="flex justify-between text-xs text-gray-500 mb-1">
           <span>
@@ -313,8 +348,8 @@ export function AssessmentForm({
           actions
         ) : (
           <div className="flex items-center gap-3">
-            <Button variant="secondary" onClick={onSave} disabled={saving || (isSubmitted && editableWhenSubmitted.length === 0)}>
-              {saving ? "Saving..." : isSubmitted ? "Save responses" : "Save Draft"}
+            <Button variant="secondary" onClick={onSave} disabled={saveDisabled}>
+              {saveLabel}
             </Button>
             <Button onClick={() => setCurrentStep((s) => s + 1)}>Next</Button>
           </div>

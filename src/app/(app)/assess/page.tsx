@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { CycleData, TeamMemberStatus } from "@/types";
+import { StageBadge } from "@/components/ui/stage-badge";
 import { formatCyclePeriod } from "@/lib/utils";
 
 export default function AssessTeamPage() {
@@ -70,28 +70,10 @@ export default function AssessTeamPage() {
                   <p className="text-xs text-gray-500">{member.email}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge
-                    className={
-                      member.selfAssessmentStatus === "submitted"
-                        ? "bg-green-100 text-green-800 border-green-300"
-                        : member.selfAssessmentStatus === "draft"
-                          ? "bg-amber-100 text-amber-800 border-amber-300"
-                          : "bg-gray-100 text-gray-800 border-gray-300"
-                    }
-                  >
-                    Self: {member.selfAssessmentStatus === "submitted" ? "Done" : member.selfAssessmentStatus === "draft" ? "Draft" : "Pending"}
-                  </Badge>
-                  <Badge
-                    className={
-                      member.managerAssessmentStatus === "submitted"
-                        ? "bg-green-100 text-green-800 border-green-300"
-                        : member.managerAssessmentStatus === "draft"
-                          ? "bg-amber-100 text-amber-800 border-amber-300"
-                          : "bg-gray-100 text-gray-800 border-gray-300"
-                    }
-                  >
-                    Mgr: {member.managerAssessmentStatus === "submitted" ? "Done" : member.managerAssessmentStatus === "draft" ? "Draft" : "Pending"}
-                  </Badge>
+                  <StageBadge stage={member.stage} />
+                  <span className="text-xs text-gray-500">
+                    Self {member.selfAssessmentStatus === "submitted" ? "in" : member.selfAssessmentStatus === "draft" ? "draft" : "pending"}
+                  </span>
                   <Button
                     size="sm"
                     variant={member.managerAssessmentStatus === "submitted" ? "ghost" : "primary"}

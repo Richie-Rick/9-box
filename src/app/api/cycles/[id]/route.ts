@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/permissions";
+import { computeStage } from "@/lib/stages";
 
 export async function GET(
   _request: Request,
@@ -30,8 +31,11 @@ export async function GET(
       select: {
         id: true,
         createdAt: true,
+        updatedAt: true,
+        performance: true,
         submittedAt: true,
-        resultsSentAt: true,
+        sharedAt: true,
+        oneOnOneCompletedAt: true,
         employee: { select: { id: true, name: true, email: true } },
         manager: { select: { id: true, name: true } },
       },
@@ -43,6 +47,9 @@ export async function GET(
         id: true,
         employeeId: true,
         submittedAt: true,
+        performance: true,
+        createdAt: true,
+        updatedAt: true,
       },
     }),
   ]);
@@ -51,39 +58,38 @@ export async function GET(
 
   const assessments = managerAssessments.map((ma) => {
     const selfA = selfMap.get(ma.employee.id);
-    const selfStatus = selfA?.submittedAt ? "submitted" : "pending";
-    const mgrStatus = ma.submittedAt ? "submitted" : "pending";
-
-    let overallStatus: string;
-    if (ma.resultsSentAt) {
-      overallStatus = "results_sent";
-    } else if (mgrStatus === "submitted" && selfStatus === "submitted") {
-      overallStatus = "ready_to_send";
-    } else if (mgrStatus === "submitted" || selfStatus === "submitted") {
-      overallStatus = "in_progress";
-    } else {
-      overallStatus = "pending";
-    }
+    const selfStarted = !!selfA && (selfA.performance !== null || selfA.updatedAt.getTime() !== selfA.createdAt.getTime());
+    const managerStarted = ma.performance !== null || ma.updatedAt.getTime() !== ma.createdAt.getTime();
+    const stage = computeStage({
+      selfStarted,
+      selfSubmitted: !!selfA?.submittedAt,
+      managerStarted,
+      managerSubmitted: !!ma.submittedAt,
+      sharedAt: ma.sharedAt,
+      oneOnOneCompletedAt: ma.oneOnOneCompletedAt,
+    });
 
     return {
       id: ma.id,
       employee: ma.employee,
       manager: ma.manager,
-      selfStatus,
-      managerStatus: mgrStatus,
-      overallStatus,
+      selfStatus: selfA?.submittedAt ? "submitted" : "pending",
+      managerStatus: ma.submittedAt ? "submitted" : "pending",
+      stage,
       createdAt: ma.createdAt,
       submittedAt: ma.submittedAt,
-      resultsSentAt: ma.resultsSentAt,
+      sharedAt: ma.sharedAt,
+      oneOnOneCompletedAt: ma.oneOnOneCompletedAt,
     };
   });
 
   const stats = {
     total: assessments.length,
-    pending: assessments.filter((a) => a.overallStatus === "pending").length,
-    inProgress: assessments.filter((a) => a.overallStatus === "in_progress").length,
-    readyToSend: assessments.filter((a) => a.overallStatus === "ready_to_send").length,
-    resultsSent: assessments.filter((a) => a.overallStatus === "results_sent").length,
+    notStarted: assessments.filter((a) => a.stage === "not_started").length,
+    inProgress: assessments.filter((a) => a.stage === "in_progress").length,
+    submitted: assessments.filter((a) => a.stage === "submitted").length,
+    shared: assessments.filter((a) => a.stage === "shared").length,
+    meetingDone: assessments.filter((a) => a.stage === "meeting_done").length,
   };
 
   return NextResponse.json({ cycle, assessments, stats });

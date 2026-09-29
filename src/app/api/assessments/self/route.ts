@@ -8,6 +8,7 @@ import {
   SELF_TEXT_FIELDS,
   SELF_REQUIRED_FIELDS,
 } from "@/lib/assessment-fields";
+import { SECTIONS, sectionRatingFields } from "@/lib/assessment-sections";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -93,11 +94,32 @@ export async function POST(request: Request) {
   const existing = await prisma.selfAssessment.findUnique({ where: uniqueWhere });
 
   if (existing?.submittedAt) {
-    return NextResponse.json({ error: "Submitted assessments are locked" }, { status: 409 });
+    // Edits are allowed until the manager has read that section
+    const before = existing as unknown as Record<string, unknown>;
+    const changed = Object.keys(data).filter((key) => (before[key] ?? null) !== data[key]);
+    if (changed.length > 0) {
+      const managerAssessment = await prisma.managerAssessment.findFirst({
+        where: { cycleId, employeeId: session.user.id },
+        select: { initialRatings: true },
+      });
+      const revealed = (managerAssessment?.initialRatings as Record<string, number> | null) ?? {};
+      const lockedSections = SECTIONS.filter((section) => {
+        const touches = section.questions.some((q) => q.fields.self && changed.includes(q.fields.self));
+        if (!touches) return false;
+        const fields = sectionRatingFields(section.id, "manager");
+        return fields.length > 0 && fields.every((f) => f in revealed);
+      });
+      if (lockedSections.length > 0) {
+        return NextResponse.json(
+          { error: `Your manager has already read: ${lockedSections.map((s) => s.title).join(", ")}. Those sections can no longer be changed.` },
+          { status: 409 }
+        );
+      }
+    }
   }
 
   const writeData: Record<string, unknown> = { ...data };
-  if (submit) {
+  if (submit && !existing?.submittedAt) {
     const merged = { ...(existing ?? {}), ...data };
     const missing = missingRequired(merged, SELF_REQUIRED_FIELDS);
     if (missing.length > 0) {

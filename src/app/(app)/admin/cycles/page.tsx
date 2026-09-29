@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { formatCyclePeriod, getCurrentPeriod } from "@/lib/utils";
 import type { CycleData } from "@/types";
+import { StageBadge } from "@/components/ui/stage-badge";
+import type { Stage } from "@/lib/stages";
 
 interface CycleAssessment {
   id: string;
@@ -15,10 +17,11 @@ interface CycleAssessment {
   manager: { id: string; name: string };
   selfStatus: "pending" | "submitted";
   managerStatus: "pending" | "submitted";
-  overallStatus: "pending" | "in_progress" | "ready_to_send" | "results_sent";
+  stage: Stage;
   createdAt: string;
   submittedAt: string | null;
-  resultsSentAt: string | null;
+  sharedAt: string | null;
+  oneOnOneCompletedAt: string | null;
 }
 
 interface CycleDetail {
@@ -26,10 +29,11 @@ interface CycleDetail {
   assessments: CycleAssessment[];
   stats: {
     total: number;
-    pending: number;
+    notStarted: number;
     inProgress: number;
-    readyToSend: number;
-    resultsSent: number;
+    submitted: number;
+    shared: number;
+    meetingDone: number;
   };
 }
 
@@ -37,19 +41,6 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-function getStatusBadge(status: string) {
-  switch (status) {
-    case "results_sent":
-      return <Badge className="bg-green-100 text-green-800 border-green-300">Results Sent</Badge>;
-    case "ready_to_send":
-      return <Badge className="bg-blue-100 text-blue-800 border-blue-300">Ready to Send</Badge>;
-    case "in_progress":
-      return <Badge className="bg-amber-100 text-amber-800 border-amber-300">In Progress</Badge>;
-    default:
-      return <Badge className="bg-gray-100 text-gray-600 border-gray-300">Pending</Badge>;
-  }
-}
 
 function formatDate(dateStr: string | null) {
   if (!dateStr) return "—";
@@ -251,26 +242,30 @@ export default function AdminCyclesPage() {
                   ) : cycleDetail ? (
                     <div className="space-y-4 pt-4">
                       {/* Stats summary */}
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
                         <div className="text-center p-2 rounded-lg bg-visory-grey">
                           <p className="text-lg font-bold text-visory-navy">{cycleDetail.stats.total}</p>
                           <p className="text-xs text-gray-500">Total</p>
                         </div>
                         <div className="text-center p-2 rounded-lg bg-gray-50">
-                          <p className="text-lg font-bold text-gray-600">{cycleDetail.stats.pending}</p>
-                          <p className="text-xs text-gray-500">Pending</p>
+                          <p className="text-lg font-bold text-gray-600">{cycleDetail.stats.notStarted}</p>
+                          <p className="text-xs text-gray-500">Not started</p>
                         </div>
                         <div className="text-center p-2 rounded-lg bg-amber-50">
                           <p className="text-lg font-bold text-amber-600">{cycleDetail.stats.inProgress}</p>
-                          <p className="text-xs text-gray-500">In Progress</p>
+                          <p className="text-xs text-gray-500">In progress</p>
                         </div>
                         <div className="text-center p-2 rounded-lg bg-blue-50">
-                          <p className="text-lg font-bold text-blue-600">{cycleDetail.stats.readyToSend}</p>
-                          <p className="text-xs text-gray-500">Ready to Send</p>
+                          <p className="text-lg font-bold text-blue-600">{cycleDetail.stats.submitted}</p>
+                          <p className="text-xs text-gray-500">Submitted</p>
+                        </div>
+                        <div className="text-center p-2 rounded-lg bg-visory-light">
+                          <p className="text-lg font-bold text-visory-dark">{cycleDetail.stats.shared}</p>
+                          <p className="text-xs text-gray-500">Shared</p>
                         </div>
                         <div className="text-center p-2 rounded-lg bg-green-50">
-                          <p className="text-lg font-bold text-green-600">{cycleDetail.stats.resultsSent}</p>
-                          <p className="text-xs text-gray-500">Results Sent</p>
+                          <p className="text-lg font-bold text-green-600">{cycleDetail.stats.meetingDone}</p>
+                          <p className="text-xs text-gray-500">Meeting done</p>
                         </div>
                       </div>
 
@@ -283,9 +278,9 @@ export default function AdminCyclesPage() {
                               <th className="text-left py-2 px-2 font-medium text-gray-500">Manager</th>
                               <th className="text-center py-2 px-2 font-medium text-gray-500">Self</th>
                               <th className="text-center py-2 px-2 font-medium text-gray-500">Manager</th>
-                              <th className="text-center py-2 px-2 font-medium text-gray-500">Status</th>
-                              <th className="text-left py-2 px-2 font-medium text-gray-500">Created</th>
-                              <th className="text-left py-2 px-2 font-medium text-gray-500">Sent</th>
+                              <th className="text-center py-2 px-2 font-medium text-gray-500">Stage</th>
+                              <th className="text-left py-2 px-2 font-medium text-gray-500">Shared</th>
+                              <th className="text-left py-2 px-2 font-medium text-gray-500">1:1</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
@@ -308,10 +303,10 @@ export default function AdminCyclesPage() {
                                   )}
                                 </td>
                                 <td className="py-2 px-2 text-center">
-                                  {getStatusBadge(a.overallStatus)}
+                                  <StageBadge stage={a.stage} />
                                 </td>
-                                <td className="py-2 px-2 text-gray-500 text-xs">{formatDate(a.createdAt)}</td>
-                                <td className="py-2 px-2 text-gray-500 text-xs">{formatDate(a.resultsSentAt)}</td>
+                                <td className="py-2 px-2 text-gray-500 text-xs">{formatDate(a.sharedAt)}</td>
+                                <td className="py-2 px-2 text-gray-500 text-xs">{formatDate(a.oneOnOneCompletedAt)}</td>
                               </tr>
                             ))}
                           </tbody>

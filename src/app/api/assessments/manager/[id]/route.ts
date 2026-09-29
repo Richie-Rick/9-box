@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import {
   sanitizeAssessmentInput,
   MANAGER_RATING_FIELDS,
   MANAGER_TEXT_FIELDS,
+  MANAGER_RESPONSE_FIELDS,
 } from "@/lib/assessment-fields";
 
 export async function GET(
@@ -63,19 +65,49 @@ export async function PUT(
   if (existing.cycle.status !== "OPEN") {
     return NextResponse.json({ error: "This cycle is closed. Ask your admin to reopen it." }, { status: 400 });
   }
-  if (existing.submittedAt) {
-    return NextResponse.json({ error: "Submitted assessments are locked" }, { status: 409 });
-  }
-
   const body = (await request.json()) as Record<string, unknown>;
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
   const { data, errors } = sanitizeAssessmentInput(body, MANAGER_RATING_FIELDS, MANAGER_TEXT_FIELDS);
   if (errors.length > 0) {
     return NextResponse.json({ error: errors.join(". ") }, { status: 400 });
   }
 
-  const assessment = await prisma.managerAssessment.update({
-    where: { id },
-    data,
+  const writeData: Record<string, unknown> = { ...data };
+  let revision: { before: Prisma.InputJsonObject; after: Prisma.InputJsonObject } | null = null;
+  if (existing.submittedAt) {
+    const before = existing as unknown as Record<string, unknown>;
+    const changed = Object.keys(data).filter((key) => (before[key] ?? null) !== data[key]);
+    const auditable = changed.filter((key) => !MANAGER_RESPONSE_FIELDS.includes(key));
+    if (auditable.length > 0) {
+      if (existing.sharedAt && !reason) {
+        return NextResponse.json(
+          { error: "This assessment has been shared. Add a short reason for the change.", needsReason: true },
+          { status: 400 }
+        );
+      }
+      revision = {
+        before: Object.fromEntries(auditable.map((k) => [k, (before[k] ?? null) as Prisma.InputJsonValue | null])) as Prisma.InputJsonObject,
+        after: Object.fromEntries(auditable.map((k) => [k, data[k] as Prisma.InputJsonValue | null])) as Prisma.InputJsonObject,
+      };
+      writeData.editCount = { increment: 1 };
+      writeData.lastEditedAt = new Date();
+    }
+  }
+
+  const assessment = await prisma.$transaction(async (tx) => {
+    const saved = await tx.managerAssessment.update({ where: { id }, data: writeData });
+    if (revision) {
+      await tx.assessmentRevision.create({
+        data: {
+          managerAssessmentId: id,
+          changedById: session.user.id,
+          reason: reason || null,
+          before: revision.before,
+          after: revision.after,
+        },
+      });
+    }
+    return saved;
   });
 
   return NextResponse.json(assessment);

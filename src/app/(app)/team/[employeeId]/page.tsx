@@ -31,7 +31,7 @@ interface AssessmentHistory {
   valFlockToProblems: number | null;
   valGiveEnergy: number | null;
   submittedAt: string | null;
-  resultsSentAt: string | null;
+  sharedAt: string | null;
   cycle: { id: string; month: number; year: number };
 }
 

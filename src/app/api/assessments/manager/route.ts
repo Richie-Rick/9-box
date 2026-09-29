@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { isManager } from "@/lib/permissions";
 import {
   sanitizeAssessmentInput,
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
   } else if (role === "EMPLOYEE") {
     // Employees only ever see their own assessments, and only once shared
     where.employeeId = session.user.id;
-    where.resultsSentAt = { not: null };
+    where.sharedAt = { not: null };
   }
   // LEADERSHIP and ADMIN see everything
 
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
   const cycleId = typeof body.cycleId === "string" ? body.cycleId : null;
   const employeeId = typeof body.employeeId === "string" ? body.employeeId : null;
   const submit = body.submit === true;
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
   if (!cycleId || !employeeId) {
     return NextResponse.json({ error: "cycleId and employeeId are required" }, { status: 400 });
@@ -93,20 +95,31 @@ export async function POST(request: Request) {
   };
   const existing = await prisma.managerAssessment.findUnique({ where: uniqueWhere });
 
-  if (existing?.submittedAt) {
-    // After submission only the responses to the self-review may change
-    const changed = Object.keys(data).filter((key) => {
-      const before = (existing as unknown as Record<string, unknown>)[key] ?? null;
-      return before !== data[key];
-    });
-    const locked = changed.filter((key) => !MANAGER_RESPONSE_FIELDS.includes(key));
-    if (locked.length > 0 || submit) {
-      return NextResponse.json({ error: "Submitted assessments are locked" }, { status: 409 });
-    }
-  }
-
   const writeData: Record<string, unknown> = { ...data };
-  if (submit) {
+
+  // Post-submission edits: allowed while the cycle is open, logged as a
+  // revision, and a reason is required once the assessment has been shared.
+  let revision: { before: Prisma.InputJsonObject; after: Prisma.InputJsonObject } | null = null;
+  if (existing?.submittedAt) {
+    const before = existing as unknown as Record<string, unknown>;
+    const changed = Object.keys(data).filter((key) => (before[key] ?? null) !== data[key]);
+    const auditable = changed.filter((key) => !MANAGER_RESPONSE_FIELDS.includes(key));
+
+    if (auditable.length > 0) {
+      if (existing.sharedAt && !reason) {
+        return NextResponse.json(
+          { error: "This assessment has been shared. Add a short reason for the change.", needsReason: true },
+          { status: 400 }
+        );
+      }
+      revision = {
+        before: Object.fromEntries(auditable.map((k) => [k, (before[k] ?? null) as Prisma.InputJsonValue | null])) as Prisma.InputJsonObject,
+        after: Object.fromEntries(auditable.map((k) => [k, data[k] as Prisma.InputJsonValue | null])) as Prisma.InputJsonObject,
+      };
+      writeData.editCount = { increment: 1 };
+      writeData.lastEditedAt = new Date();
+    }
+  } else if (submit) {
     const merged = { ...(existing ?? {}), ...data };
     const missing = missingRequired(merged, MANAGER_REQUIRED_FIELDS);
     if (missing.length > 0) {
@@ -118,15 +131,29 @@ export async function POST(request: Request) {
     writeData.submittedAt = new Date();
   }
 
-  const assessment = await prisma.managerAssessment.upsert({
-    where: uniqueWhere,
-    update: writeData,
-    create: {
-      cycleId,
-      managerId: session.user.id,
-      employeeId,
-      ...writeData,
-    },
+  const assessment = await prisma.$transaction(async (tx) => {
+    const saved = await tx.managerAssessment.upsert({
+      where: uniqueWhere,
+      update: writeData,
+      create: {
+        cycleId,
+        managerId: session.user.id,
+        employeeId,
+        ...data,
+      },
+    });
+    if (revision) {
+      await tx.assessmentRevision.create({
+        data: {
+          managerAssessmentId: saved.id,
+          changedById: session.user.id,
+          reason: reason || null,
+          before: revision.before,
+          after: revision.after,
+        },
+      });
+    }
+    return saved;
   });
 
   let bothComplete = false;
@@ -137,5 +164,5 @@ export async function POST(request: Request) {
     bothComplete = !!selfAssessment;
   }
 
-  return NextResponse.json({ ...assessment, bothComplete });
+  return NextResponse.json({ ...assessment, bothComplete, revisionCreated: !!revision });
 }

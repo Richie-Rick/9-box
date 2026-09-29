@@ -36,7 +36,7 @@ export function Navbar() {
   const navLinks = getNavLinks(role);
 
   return (
-    <nav className="bg-visory-navy sticky top-0 z-50">
+    <nav className="bg-visory-navy sticky top-0 z-50 no-print">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center gap-8">

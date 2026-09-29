@@ -8,16 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCyclePeriod } from "@/lib/utils";
 
-interface TeamMember {
-  id: string;
-  name: string;
-  email: string;
-  jobTitle: string | null;
-  team: string | null;
-  selfAssessmentStatus: "not_started" | "draft" | "submitted";
-  managerAssessmentStatus: "not_started" | "draft" | "submitted";
-  resultsSentAt: string | null;
-}
+import type { TeamMemberStatus as TeamMember } from "@/types";
+import { StageBadge } from "@/components/ui/stage-badge";
 
 interface CycleData {
   id: string;
@@ -87,7 +79,6 @@ export default function MyTeamPage() {
       ) : (
         <div className="space-y-3">
           {team.map((member) => {
-            const bothSubmitted = member.selfAssessmentStatus === "submitted" && member.managerAssessmentStatus === "submitted";
             return (
               <Card key={member.id}>
                 <CardContent className="py-4">
@@ -108,38 +99,12 @@ export default function MyTeamPage() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-gray-500">Self:</span>
-                        <Badge
-                          className={
-                            member.selfAssessmentStatus === "submitted"
-                              ? "bg-green-100 text-green-800 border-green-300"
-                              : member.selfAssessmentStatus === "draft"
-                                ? "bg-amber-100 text-amber-800 border-amber-300"
-                                : "bg-gray-100 text-gray-600 border-gray-300"
-                          }
-                        >
-                          {member.selfAssessmentStatus === "submitted" ? "Done" : member.selfAssessmentStatus === "draft" ? "Draft" : "Pending"}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-gray-500">Manager:</span>
-                        <Badge
-                          className={
-                            member.managerAssessmentStatus === "submitted"
-                              ? "bg-green-100 text-green-800 border-green-300"
-                              : member.managerAssessmentStatus === "draft"
-                                ? "bg-amber-100 text-amber-800 border-amber-300"
-                                : "bg-gray-100 text-gray-600 border-gray-300"
-                          }
-                        >
-                          {member.managerAssessmentStatus === "submitted" ? "Done" : member.managerAssessmentStatus === "draft" ? "Draft" : "Pending"}
-                        </Badge>
-                      </div>
-
-                      {member.resultsSentAt && (
-                        <Badge className="bg-green-100 text-green-800 border-green-300">Results Sent</Badge>
-                      )}
+                      <StageBadge stage={member.stage} />
+                      <span className="text-xs text-gray-500">
+                        Self {member.selfAssessmentStatus === "submitted" ? "in" : member.selfAssessmentStatus === "draft" ? "draft" : "pending"}
+                        {" · "}
+                        Manager {member.managerAssessmentStatus === "submitted" ? "in" : member.managerAssessmentStatus === "draft" ? "draft" : "pending"}
+                      </span>
 
                       <div className="flex gap-2">
                         {cycle && member.managerAssessmentStatus !== "submitted" && (
@@ -150,22 +115,13 @@ export default function MyTeamPage() {
                             Assess
                           </Button>
                         )}
-                        {cycle && bothSubmitted && (
+                        {cycle && member.managerAssessmentStatus === "submitted" && (
                           <Button
                             size="sm"
                             variant="secondary"
-                            onClick={() => router.push(`/summary/${member.id}?cycleId=${cycle.id}`)}
+                            onClick={() => router.push(`/summary/${member.id}?cycleId=${cycle.id}${member.sharedAt && !member.oneOnOneCompletedAt ? "&mode=meeting" : ""}`)}
                           >
-                            Review Summary
-                          </Button>
-                        )}
-                        {cycle && member.managerAssessmentStatus === "submitted" && !bothSubmitted && (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => router.push(`/summary/${member.id}?cycleId=${cycle.id}`)}
-                          >
-                            View
+                            {member.sharedAt && !member.oneOnOneCompletedAt ? "Meeting" : "Summary"}
                           </Button>
                         )}
                       </div>

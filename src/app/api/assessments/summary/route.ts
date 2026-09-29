@@ -53,18 +53,20 @@ export async function GET(request: Request) {
   const isRequesterManager = managerAssessment?.managerId === session.user.id;
   let mgrData: Record<string, unknown> | null = null;
   if (managerAssessment) {
-    if (isOwnRecord && !isLeadershipOrAdmin && !managerAssessment.resultsSentAt) {
+    if (isOwnRecord && !isLeadershipOrAdmin && !managerAssessment.sharedAt) {
       // The employee only learns the status until results are shared
       mgrData = {
         id: managerAssessment.id,
         submittedAt: null,
-        resultsSentAt: null,
+        sharedAt: null,
         manager: managerAssessment.manager,
       };
     } else {
+      // Meeting notes: the manager always, leadership always, the employee once the 1:1 is done
+      const canSeeNotes = isRequesterManager || isLeadershipOrAdmin || (isOwnRecord && !!managerAssessment.oneOnOneCompletedAt);
       mgrData = {
         ...managerAssessment,
-        oneOnOneNotes: isRequesterManager ? managerAssessment.oneOnOneNotes : null,
+        oneOnOneNotes: canSeeNotes ? managerAssessment.oneOnOneNotes : null,
       };
     }
   }

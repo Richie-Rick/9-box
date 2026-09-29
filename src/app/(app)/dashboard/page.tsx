@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
+import { ShareModal } from "@/components/assessments/share-modal";
+import { StageBadge } from "@/components/ui/stage-badge";
 import type { CycleData, TeamMemberStatus, ManagerAssessmentData } from "@/types";
 import { formatCyclePeriod } from "@/lib/utils";
 import {
@@ -81,7 +83,7 @@ function EmployeeDashboard() {
                 mgrValuesAlignment: mgrVA,
                 selfSubmitted: !!self?.submittedAt,
                 mgrSubmitted: !!mgr?.submittedAt,
-                resultsSent: !!mgr?.resultsSentAt,
+                resultsSent: !!mgr?.sharedAt,
               });
             } catch { /* skip */ }
           })
@@ -284,29 +286,6 @@ interface PlacedEmployee {
   engagement: number;
 }
 
-function SendResultsConfirmModal({ memberName, onConfirm, onCancel }: { memberName: string; onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-        <h3 className="text-lg font-semibold text-visory-navy mb-2">Send Results to {memberName}?</h3>
-        <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-4">
-          <p className="text-sm text-amber-800 font-semibold mb-1">Important</p>
-          <p className="text-sm text-amber-700">
-            Manager reviews should only be sent after the monthly 1:1 meeting has been conducted. Please confirm you have completed the 1:1 before sharing results.
-          </p>
-        </div>
-        <p className="text-sm text-gray-600 mb-4">
-          This will make your assessment visible to {memberName}. This action cannot be undone.
-        </p>
-        <div className="flex justify-end gap-3">
-          <Button variant="secondary" size="sm" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" onClick={onConfirm}>Confirm &amp; Send Results</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ManagerDashboard() {
   const { data: session } = useSession();
   const router = useRouter();
@@ -318,8 +297,8 @@ function ManagerDashboard() {
   const [activeGrid, setActiveGrid] = useState<"box1" | "box2">("box1");
   const [selectedTitles, setSelectedTitles] = useState<string[]>([]);
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
-  const [sendConfirm, setSendConfirm] = useState<{ memberId: string; memberName: string } | null>(null);
-  const [sendingResults, setSendingResults] = useState(false);
+  const [shareConfirm, setShareConfirm] = useState<TeamMemberStatus | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     fetch("/api/cycles")
@@ -381,22 +360,22 @@ function ManagerDashboard() {
   const xLabel = activeGrid === "box1" ? "Performance" : "Values Alignment";
   const yLabel = activeGrid === "box1" ? "Growth Readiness" : "Engagement";
 
-  async function handleSendResults(memberId: string) {
-    const assessment = assessments.find((a) => a.employeeId === memberId);
-    if (!assessment) return;
-    setSendingResults(true);
+  async function handleShare(member: TeamMemberStatus) {
+    if (!member.managerAssessmentId) return;
+    setSharing(true);
     try {
-      const res = await fetch("/api/assessments/manager/send-results", {
+      const res = await fetch("/api/assessments/manager/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId: assessment.id }),
+        body: JSON.stringify({ assessmentId: member.managerAssessmentId }),
       });
       if (res.ok) {
-        setTeam((prev) => prev.map((m) => m.id === memberId ? { ...m, resultsSentAt: new Date().toISOString() } : m));
+        const now = new Date().toISOString();
+        setTeam((prev) => prev.map((m) => m.id === member.id ? { ...m, sharedAt: now, stage: m.stage === "meeting_done" ? m.stage : "shared" } : m));
       }
     } finally {
-      setSendingResults(false);
-      setSendConfirm(null);
+      setSharing(false);
+      setShareConfirm(null);
     }
   }
 
@@ -555,28 +534,10 @@ function ManagerDashboard() {
                       <p className="text-xs text-gray-500">{member.email}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        className={
-                          member.selfAssessmentStatus === "submitted"
-                            ? "bg-green-100 text-green-800 border-green-300"
-                            : member.selfAssessmentStatus === "draft"
-                              ? "bg-amber-100 text-amber-800 border-amber-300"
-                              : "bg-gray-100 text-gray-800 border-gray-300"
-                        }
-                      >
-                        Self: {member.selfAssessmentStatus === "submitted" ? "Done" : member.selfAssessmentStatus === "draft" ? "Draft" : "Pending"}
-                      </Badge>
-                      <Badge
-                        className={
-                          member.managerAssessmentStatus === "submitted"
-                            ? "bg-green-100 text-green-800 border-green-300"
-                            : member.managerAssessmentStatus === "draft"
-                              ? "bg-amber-100 text-amber-800 border-amber-300"
-                              : "bg-gray-100 text-gray-800 border-gray-300"
-                        }
-                      >
-                        Mgr: {member.managerAssessmentStatus === "submitted" ? "Done" : member.managerAssessmentStatus === "draft" ? "Draft" : "Pending"}
-                      </Badge>
+                      <StageBadge stage={member.stage} />
+                      <span className="text-xs text-gray-500">
+                        Self {member.selfAssessmentStatus === "submitted" ? "in" : member.selfAssessmentStatus === "draft" ? "draft" : "pending"}
+                      </span>
                       <Button
                         size="sm"
                         variant={member.managerAssessmentStatus === "submitted" ? "ghost" : "primary"}
@@ -584,17 +545,20 @@ function ManagerDashboard() {
                       >
                         {member.managerAssessmentStatus === "submitted" ? "View" : "Assess"}
                       </Button>
-                      {member.managerAssessmentStatus === "submitted" && member.selfAssessmentStatus === "submitted" && !member.resultsSentAt && (
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          onClick={() => setSendConfirm({ memberId: member.id, memberName: member.name })}
-                        >
-                          Send Results
+                      {member.managerAssessmentStatus === "submitted" && !member.sharedAt && (
+                        <Button size="sm" variant="primary" onClick={() => setShareConfirm(member)}>
+                          Share
                         </Button>
                       )}
-                      {member.resultsSentAt && (
-                        <Badge className="bg-green-100 text-green-800 border-green-300">Results Sent</Badge>
+                      {member.sharedAt && !member.oneOnOneCompletedAt && (
+                        <Button size="sm" variant="secondary" onClick={() => router.push(`/summary/${member.id}?cycleId=${cycle.id}&mode=meeting`)}>
+                          Meeting
+                        </Button>
+                      )}
+                      {member.oneOnOneCompletedAt && (
+                        <Button size="sm" variant="ghost" onClick={() => router.push(`/summary/${member.id}?cycleId=${cycle.id}`)}>
+                          Summary
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -610,11 +574,13 @@ function ManagerDashboard() {
         </>
       )}
 
-      {sendConfirm && (
-        <SendResultsConfirmModal
-          memberName={sendConfirm.memberName}
-          onConfirm={() => handleSendResults(sendConfirm.memberId)}
-          onCancel={() => setSendConfirm(null)}
+      {shareConfirm && (
+        <ShareModal
+          memberName={shareConfirm.name}
+          selfSubmitted={shareConfirm.selfAssessmentStatus === "submitted"}
+          busy={sharing}
+          onConfirm={() => handleShare(shareConfirm)}
+          onCancel={() => setShareConfirm(null)}
         />
       )}
     </div>

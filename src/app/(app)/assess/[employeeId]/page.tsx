@@ -9,6 +9,7 @@ import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
 import { GoalUpdatesEditor } from "@/components/goals/goal-updates-editor";
 import { SECTIONS, withName, fieldsFor, sectionRatingFields } from "@/lib/assessment-sections";
 import { MANAGER_RESPONSE_FIELDS } from "@/lib/assessment-fields";
+import { Button } from "@/components/ui/button";
 
 const MANAGER_FIELDS = fieldsFor("manager");
 const ALL_MANAGER_FIELDS = [...MANAGER_FIELDS.rating, ...MANAGER_FIELDS.text];
@@ -37,6 +38,10 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
   const [revealing, setRevealing] = useState<Record<string, boolean>>({});
   const [revealErrors, setRevealErrors] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState(false);
+  const [meta, setMeta] = useState<{ submittedAt: string | null; sharedAt: string | null; editCount: number }>({ submittedAt: null, sharedAt: null, editCount: 0 });
+  const [reasonPrompt, setReasonPrompt] = useState(false);
+  const [reason, setReason] = useState("");
 
   const fetchReveal = useCallback(
     async (sectionId: string) => {
@@ -56,6 +61,11 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         if (Array.isArray(data) && data.length > 0) {
           const a = data[0] as Record<string, unknown>;
           setIsSubmitted(!!a.submittedAt);
+          setMeta({
+            submittedAt: (a.submittedAt as string | null) ?? null,
+            sharedAt: (a.sharedAt as string | null) ?? null,
+            editCount: (a.editCount as number | undefined) ?? 0,
+          });
           setEmployeeName((a.employee as { name?: string } | undefined)?.name || "");
           setValues(pickValues(a));
           // Sections already revealed earlier come back open
@@ -73,9 +83,10 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   }, [cycleId, employeeId, fetchReveal]);
 
   const save = useCallback(
-    async (submit = false): Promise<boolean> => {
+    async (submit = false, editReason?: string): Promise<boolean> => {
       if (!cycleId) return false;
       const payload: Record<string, unknown> = { cycleId, employeeId, submit };
+      if (editReason) payload.reason = editReason;
       for (const field of ALL_MANAGER_FIELDS) payload[field] = values[field] ?? null;
 
       if (submit) setSubmitting(true);
@@ -90,11 +101,24 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         });
         const data = await res.json();
         if (!res.ok) {
+          if (data.needsReason) {
+            setReasonPrompt(true);
+            return false;
+          }
           setError(data.error || "Could not save. Please try again.");
           return false;
         }
+        if (data.revisionCreated) {
+          setMeta((m) => ({ ...m, editCount: m.editCount + 1 }));
+        }
+        if (editing && !submit) {
+          setEditing(false);
+          setReason("");
+          setReasonPrompt(false);
+        }
         if (submit) {
           setIsSubmitted(true);
+          setMeta((m) => ({ ...m, submittedAt: new Date().toISOString() }));
           if (data.bothComplete) {
             router.push(`/summary/${employeeId}?cycleId=${cycleId}`);
           }
@@ -108,7 +132,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         setSubmitting(false);
       }
     },
-    [cycleId, employeeId, values, router]
+    [cycleId, employeeId, values, router, editing]
   );
 
   const reveal = useCallback(
@@ -201,12 +225,36 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-visory-navy">Manager Assessment</h1>
         {employeeName && <p className="text-sm text-gray-600 mt-1">Assessing: {employeeName}</p>}
-        {isSubmitted && (
+        {isSubmitted && !editing && (
           <p className="text-xs text-gray-500 mt-1">
-            Submitted. Ratings are locked; you can still reveal each section and add your responses.
+            You can still reveal each section and add your responses, or use Edit to change ratings
+            {meta.sharedAt ? " (a reason is required because the review has been shared)" : ""}.
           </p>
         )}
       </div>
+      {reasonPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-lg font-semibold text-visory-navy mb-2">Why are you changing this review?</h3>
+            <p className="text-sm text-gray-600 mb-3">
+              {employeeName || "The employee"} has already seen it. The reason is recorded with the change.
+            </p>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder="e.g. Corrected after our conversation about the Q3 client outcomes"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-visory"
+            />
+            <div className="flex justify-end gap-3 mt-4">
+              <Button variant="secondary" size="sm" onClick={() => setReasonPrompt(false)}>Cancel</Button>
+              <Button size="sm" disabled={!reason.trim() || saving} onClick={() => save(false, reason.trim())}>
+                {saving ? "Saving..." : "Save with reason"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <AssessmentForm
         sections={sections}
         values={values}
@@ -218,6 +266,11 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         isSubmitted={isSubmitted}
         editableWhenSubmitted={[...MANAGER_RESPONSE_FIELDS]}
         error={error}
+        editing={editing}
+        onStartEditing={() => setEditing(true)}
+        onCancelEditing={() => setEditing(false)}
+        submittedAt={meta.submittedAt}
+        submittedNote={meta.editCount > 0 ? `Edited ${meta.editCount} time${meta.editCount === 1 ? "" : "s"} since submission.` : undefined}
         header={
           <div className="mb-6">
             <GoalsMetricsCard employeeId={employeeId} cycleId={cycleId} canEdit variant="form" />

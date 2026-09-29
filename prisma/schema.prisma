@@ -61,6 +61,7 @@ model User {
   goalsCreated               Goal[]             @relation("GoalCreator")
   goalsProposed              Goal[]             @relation("GoalProposer")
   goalUpdates                GoalUpdate[]
+  revisionsMade              AssessmentRevision[] @relation("RevisionAuthor")
   keyMetrics                 KeyMetric[]        @relation("EmployeeKeyMetrics")
   keyMetricsCreated          KeyMetric[]        @relation("KeyMetricCreator")
 
@@ -128,17 +129,52 @@ model ManagerAssessment {
   trend               TrendDirection?
   notes               String?
   submittedAt         DateTime?
-  resultsSentAt       DateTime?
+  sharedAt            DateTime?
+  finalisedAt         DateTime?
   oneOnOneComplete    Boolean   @default(false)
   oneOnOneCompletedAt DateTime?
   oneOnOneNotes       String?
+  editCount           Int       @default(0)
+  lastEditedAt        DateTime?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
+
+  revisions           AssessmentRevision[]
+  agreedActions       AgreedAction[]
 
   @@unique([cycleId, managerId, employeeId])
   @@index([cycleId])
   @@index([managerId])
   @@index([employeeId])
+}
+
+model AssessmentRevision {
+  id                  String            @id @default(cuid())
+  managerAssessmentId String
+  managerAssessment   ManagerAssessment @relation(fields: [managerAssessmentId], references: [id], onDelete: Cascade)
+  changedById         String
+  changedBy           User              @relation("RevisionAuthor", fields: [changedById], references: [id], onDelete: Cascade)
+  changedAt           DateTime          @default(now())
+  reason              String?
+  before              Json
+  after               Json
+
+  @@index([managerAssessmentId])
+}
+
+model AgreedAction {
+  id                  String            @id @default(cuid())
+  managerAssessmentId String
+  managerAssessment   ManagerAssessment @relation(fields: [managerAssessmentId], references: [id], onDelete: Cascade)
+  text                String
+  done                Boolean           @default(false)
+  goalId              String?
+  goal                Goal?             @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  sortOrder           Int               @default(0)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([managerAssessmentId])
 }
 
 model SelfAssessment {
@@ -205,6 +241,7 @@ model Goal {
   updatedAt   DateTime   @updatedAt
 
   updates     GoalUpdate[]
+  agreedActions AgreedAction[]
 
   @@index([employeeId])
   @@index([createdById])

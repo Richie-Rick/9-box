@@ -2,13 +2,17 @@
 
 import { useEffect, useState, use } from "react";
 import { useSession } from "next-auth/react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCyclePeriod } from "@/lib/utils";
 import { buildComparisonRows } from "@/lib/comparison";
+import { computeStage } from "@/lib/stages";
 import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
+import { ShareModal } from "@/components/assessments/share-modal";
+import { MeetingView } from "@/components/assessments/meeting-view";
+import { StageBadge } from "@/components/ui/stage-badge";
 import {
   getBox1Label,
   getBox2Label,
@@ -45,25 +49,45 @@ interface ManagerView {
   engagement: number | null;
   initialRatings: Record<string, number> | null;
   submittedAt: string | null;
-  resultsSentAt: string | null;
+  sharedAt: string | null;
   oneOnOneComplete: boolean;
   oneOnOneNotes: string | null;
   oneOnOneCompletedAt: string | null;
+  editCount?: number;
+  lastEditedAt?: string | null;
   manager: { id: string; name: string };
+}
+
+interface RevisionData {
+  id: string;
+  changedAt: string;
+  changedBy: { id: string; name: string };
+  reason: string | null;
+  changes: { field: string; label: string; before: unknown; after: unknown }[];
+}
+
+function formatDateTime(value: string) {
+  return new Date(value).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatValue(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "(empty)";
+  return String(value);
 }
 
 export default function SummaryPage({ params }: { params: Promise<{ employeeId: string }> }) {
   const { employeeId } = use(params);
   const { data: session } = useSession();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const cycleId = searchParams.get("cycleId");
+  const meetingMode = searchParams.get("mode") === "meeting";
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showSendConfirm, setShowSendConfirm] = useState(false);
-  const [sendingResults, setSendingResults] = useState(false);
-  const [meetingNotes, setMeetingNotes] = useState("");
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [savingNotes, setSavingNotes] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [revisions, setRevisions] = useState<RevisionData[] | null>(null);
+  const [showRevisions, setShowRevisions] = useState(false);
 
   useEffect(() => {
     if (!cycleId) return;
@@ -71,67 +95,55 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
       .then((r) => r.json())
       .then((d) => {
         setData(d);
-        if (d.managerAssessment?.oneOnOneNotes) {
-          setMeetingNotes(d.managerAssessment.oneOnOneNotes);
-        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
   }, [employeeId, cycleId]);
 
-  async function handleSendResults() {
-    if (!data?.managerAssessment?.id) return;
-    setSendingResults(true);
+  const { employee, cycle, selfAssessment: self, managerAssessment: mgr } = data ?? {};
+  const isManagerView = !!mgr?.manager?.id && mgr.manager.id === session?.user?.id;
+  const isLeadership = session?.user?.role === "LEADERSHIP" || session?.user?.role === "ADMIN";
+  const isEmployeeView = employeeId === session?.user?.id;
+  const editCount = mgr?.editCount ?? 0;
+
+  useEffect(() => {
+    if (!mgr?.id || editCount === 0 || !(isManagerView || isLeadership)) return;
+    fetch(`/api/assessments/manager/${mgr.id}/revisions`)
+      .then((r) => r.json())
+      .then((d) => setRevisions(Array.isArray(d) ? d : []))
+      .catch(() => setRevisions([]));
+  }, [mgr?.id, editCount, isManagerView, isLeadership]);
+
+  async function handleShare() {
+    if (!mgr?.id) return;
+    setSharing(true);
     try {
-      const res = await fetch("/api/assessments/manager/send-results", {
+      const res = await fetch("/api/assessments/manager/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId: data.managerAssessment.id }),
+        body: JSON.stringify({ assessmentId: mgr.id }),
       });
       if (res.ok) {
-        setData((prev) => prev ? {
-          ...prev,
-          managerAssessment: prev.managerAssessment ? { ...prev.managerAssessment, resultsSentAt: new Date().toISOString() } : null,
-        } : null);
+        const { sharedAt } = await res.json();
+        setData((prev) => prev && prev.managerAssessment ? { ...prev, managerAssessment: { ...prev.managerAssessment, sharedAt } } : prev);
       }
     } finally {
-      setSendingResults(false);
-      setShowSendConfirm(false);
+      setSharing(false);
+      setShowShare(false);
     }
   }
 
-  async function handleSaveMeetingNotes() {
-    if (!data?.managerAssessment?.id) return;
-    setSavingNotes(true);
-    try {
-      const res = await fetch("/api/assessments/manager/meeting-notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assessmentId: data.managerAssessment.id, notes: meetingNotes }),
-      });
-      if (res.ok) {
-        setData((prev) => prev ? {
-          ...prev,
-          managerAssessment: prev.managerAssessment ? {
-            ...prev.managerAssessment,
-            oneOnOneComplete: true,
-            oneOnOneNotes: meetingNotes,
-            oneOnOneCompletedAt: new Date().toISOString(),
-          } : null,
-        } : null);
-        setEditingNotes(false);
-      }
-    } finally {
-      setSavingNotes(false);
-    }
+  function setMode(mode: "meeting" | null) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (mode) params.set("mode", mode);
+    else params.delete("mode");
+    router.replace(`/summary/${employeeId}?${params.toString()}`);
   }
 
   if (loading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
-  if (!data || !data.employee) return <div className="text-center py-12 text-gray-500">Summary not found.</div>;
+  if (!data || !employee) return <div className="text-center py-12 text-gray-500">Summary not found.</div>;
 
-  const { employee, cycle, selfAssessment: self, managerAssessment: mgr } = data;
-  const isManagerView = mgr?.manager?.id === session?.user?.id;
-  const canSendResults = isManagerView && mgr?.submittedAt && self?.submittedAt && !mgr?.resultsSentAt;
+  const canShare = isManagerView && !!mgr?.submittedAt && !mgr?.sharedAt;
 
   const mgrValuesAlignment = mgr?.valCustomerFirst && mgr?.valStepIntoArena && mgr?.valFlockToProblems && mgr?.valGiveEnergy
     ? getValuesAlignment(mgr.valCustomerFirst, mgr.valStepIntoArena, mgr.valFlockToProblems, mgr.valGiveEnergy)
@@ -140,31 +152,121 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
   const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
 
   const comparisonRows = buildComparisonRows(self, mgr, { initialRatings: mgr?.initialRatings ?? null });
-  const isLeadership = session?.user?.role === "LEADERSHIP" || session?.user?.role === "ADMIN";
+
+  const stage = computeStage({
+    selfStarted: self?.performance !== null && self?.performance !== undefined,
+    selfSubmitted: !!self?.submittedAt,
+    managerStarted: mgr?.performance !== null && mgr?.performance !== undefined,
+    managerSubmitted: !!mgr?.submittedAt,
+    sharedAt: mgr?.sharedAt,
+    oneOnOneCompletedAt: mgr?.oneOnOneCompletedAt,
+  });
+
+  const canRunMeeting = (isManagerView || isLeadership) && !!mgr?.submittedAt && !!cycle;
+
+  if (meetingMode && canRunMeeting && mgr && cycle) {
+    return (
+      <MeetingView
+        assessmentId={mgr.id}
+        employee={employee}
+        cycle={cycle}
+        stage={stage}
+        rows={comparisonRows}
+        box1Label={box1Label}
+        box2Label={box2Label}
+        isManager={isManagerView}
+        initialNotes={mgr.oneOnOneNotes ?? ""}
+        oneOnOneCompletedAt={mgr.oneOnOneCompletedAt}
+        onCompleted={(completedAt) =>
+          setData((prev) => prev && prev.managerAssessment ? {
+            ...prev,
+            managerAssessment: { ...prev.managerAssessment, oneOnOneComplete: true, oneOnOneCompletedAt: completedAt, sharedAt: prev.managerAssessment.sharedAt ?? completedAt },
+          } : prev)
+        }
+        onExit={() => setMode(null)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-visory-navy">{employee.name}</h1>
-        {(employee.jobTitle || employee.team) && (
-          <p className="text-sm text-gray-500 mt-0.5">
-            {[employee.jobTitle, employee.team].filter(Boolean).join(" · ")}
-          </p>
-        )}
-        <div className="flex items-center gap-3 mt-1">
-          <p className="text-sm text-gray-600">
-            Assessment Summary {cycle ? `— ${formatCyclePeriod(cycle.month, cycle.year)}` : ""}
-          </p>
-          {mgr?.resultsSentAt && (
-            <Badge className="bg-green-100 text-green-800 border-green-300">Results Sent</Badge>
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-visory-navy">{employee.name}</h1>
+          {(employee.jobTitle || employee.team) && (
+            <p className="text-sm text-gray-500 mt-0.5">
+              {[employee.jobTitle, employee.team].filter(Boolean).join(" · ")}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <p className="text-sm text-gray-600">
+              Assessment Summary {cycle ? `— ${formatCyclePeriod(cycle.month, cycle.year)}` : ""}
+            </p>
+            <StageBadge stage={stage} />
+            {editCount > 0 && (isManagerView || isLeadership) && (
+              <button
+                type="button"
+                onClick={() => setShowRevisions((v) => !v)}
+                className="text-xs text-gray-500 underline underline-offset-2 hover:text-visory-navy"
+              >
+                Edited {editCount} time{editCount === 1 ? "" : "s"}
+                {mgr?.lastEditedAt ? ` · last ${formatDateTime(mgr.lastEditedAt)}` : ""}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canShare && (
+            <Button size="sm" onClick={() => setShowShare(true)}>
+              Share with {employee.name.split(" ")[0]}
+            </Button>
+          )}
+          {canRunMeeting && (
+            <Button size="sm" variant="secondary" onClick={() => setMode("meeting")}>
+              {mgr?.oneOnOneCompletedAt ? "Meeting view" : "Start meeting mode"}
+            </Button>
+          )}
+          {isManagerView && cycle && (
+            <Button size="sm" variant="ghost" onClick={() => router.push(`/assess/${employee.id}?cycleId=${cycle.id}`)}>
+              Open assessment
+            </Button>
           )}
         </div>
-        {canSendResults && (
-          <Button className="mt-3" size="sm" onClick={() => setShowSendConfirm(true)}>
-            Send Results to {employee.name}
-          </Button>
-        )}
       </div>
+
+      {showRevisions && revisions && (
+        <Card>
+          <CardHeader>
+            <h2 className="text-lg font-semibold">Edit history</h2>
+            <p className="text-xs text-gray-500">Changes made after submission, most recent first</p>
+          </CardHeader>
+          <CardContent>
+            {revisions.length === 0 ? (
+              <p className="text-sm text-gray-400">No revisions recorded.</p>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {revisions.map((r) => (
+                  <div key={r.id} className="py-3">
+                    <p className="text-sm text-visory-navy">
+                      <span className="font-medium">{r.changedBy.name}</span> · {formatDateTime(r.changedAt)}
+                      {r.reason && <span className="text-gray-600"> · {r.reason}</span>}
+                    </p>
+                    <ul className="mt-1 space-y-1">
+                      {r.changes.map((c) => (
+                        <li key={c.field} className="text-xs text-gray-600">
+                          <span className="font-medium text-gray-700">{c.label}:</span>{" "}
+                          <span className="line-through text-gray-400">{formatValue(c.before)}</span>{" "}
+                          <span>{formatValue(c.after)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Talent Density & Cultural Momentum Scores */}
       {(mgr?.performance && mgr?.growthReadiness) || (mgrValuesAlignment && mgr?.engagement) ? (
@@ -221,6 +323,7 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
           cycleId={cycle.id}
           variant="compact"
           canEdit={isManagerView || isLeadership}
+          isSelf={isEmployeeView}
           title="Goals & Key Metrics"
         />
       )}
@@ -236,58 +339,31 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
         </CardContent>
       </Card>
 
-      {/* 1:1 Meeting Notes (manager-only) */}
-      {isManagerView && mgr?.submittedAt && (
+      {/* Meeting notes: manager and leadership always, the employee once the 1:1 is done */}
+      {mgr?.submittedAt && (isManagerView || isLeadership || (isEmployeeView && mgr.oneOnOneCompletedAt)) && (
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold">1:1 Meeting Notes</h2>
-                {mgr.oneOnOneCompletedAt && (
-                  <p className="text-xs text-gray-500">
-                    Completed {new Date(mgr.oneOnOneCompletedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  </p>
+                {mgr.oneOnOneCompletedAt ? (
+                  <p className="text-xs text-gray-500">Held {formatDateTime(mgr.oneOnOneCompletedAt)}</p>
+                ) : (
+                  <p className="text-xs text-gray-500">Not yet held. Open meeting mode to take notes and record actions.</p>
                 )}
               </div>
-              {mgr.oneOnOneComplete && !editingNotes && (
-                <Button variant="ghost" size="sm" onClick={() => setEditingNotes(true)}>
-                  Edit
+              {isManagerView && (
+                <Button variant="ghost" size="sm" onClick={() => setMode("meeting")}>
+                  {mgr.oneOnOneCompletedAt ? "Edit in meeting view" : "Open meeting mode"}
                 </Button>
               )}
             </div>
           </CardHeader>
           <CardContent>
-            {mgr.oneOnOneComplete && !editingNotes ? (
-              <div>
-                {mgr.oneOnOneNotes ? (
-                  <p className="text-sm text-visory-navy whitespace-pre-wrap">{mgr.oneOnOneNotes}</p>
-                ) : (
-                  <p className="text-sm text-gray-400 italic">No notes recorded.</p>
-                )}
-              </div>
+            {mgr.oneOnOneNotes ? (
+              <p className="text-sm text-visory-navy whitespace-pre-wrap">{mgr.oneOnOneNotes}</p>
             ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-gray-600">
-                  Record any context from your 1:1 meeting. Scores will not be changed.
-                </p>
-                <textarea
-                  value={meetingNotes}
-                  onChange={(e) => setMeetingNotes(e.target.value)}
-                  placeholder="Key takeaways, context shared, actions agreed..."
-                  rows={4}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-visory focus:border-visory"
-                />
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleSaveMeetingNotes} disabled={savingNotes}>
-                    {savingNotes ? "Saving..." : "Save Meeting Notes"}
-                  </Button>
-                  {editingNotes && (
-                    <Button variant="ghost" size="sm" onClick={() => { setEditingNotes(false); setMeetingNotes(mgr.oneOnOneNotes || ""); }}>
-                      Cancel
-                    </Button>
-                  )}
-                </div>
-              </div>
+              <p className="text-sm text-gray-400 italic">No notes recorded.</p>
             )}
           </CardContent>
         </Card>
@@ -303,29 +379,21 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
         </Card>
       )}
 
-      {showSendConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
-            <h3 className="text-lg font-semibold text-visory-navy mb-2">Send Results to {employee.name}?</h3>
-            {!mgr?.oneOnOneComplete && (
-              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-4">
-                <p className="text-sm text-amber-800 font-semibold mb-1">Important</p>
-                <p className="text-sm text-amber-700">
-                  Manager reviews should only be sent after the monthly 1:1 meeting has been conducted. Please confirm you have completed the 1:1 before sharing results.
-                </p>
-              </div>
-            )}
-            <p className="text-sm text-gray-600 mb-4">
-              This will make your assessment visible to {employee.name}. This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" size="sm" onClick={() => setShowSendConfirm(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleSendResults} disabled={sendingResults}>
-                {sendingResults ? "Sending..." : "Confirm & Send Results"}
-              </Button>
-            </div>
-          </div>
-        </div>
+      {showShare && (
+        <ShareModal
+          memberName={employee.name}
+          selfSubmitted={!!self?.submittedAt}
+          busy={sharing}
+          onConfirm={handleShare}
+          onCancel={() => setShowShare(false)}
+        />
+      )}
+
+      {mgr?.sharedAt && !isEmployeeView && (
+        <p className="text-xs text-gray-400 text-center">
+          <Badge className="bg-visory-light text-visory-dark border-visory/30 mr-2">Shared</Badge>
+          {employee.name.split(" ")[0]} has been able to see this review since {formatDateTime(mgr.sharedAt)}.
+        </p>
       )}
     </div>
   );

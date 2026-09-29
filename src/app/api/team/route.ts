@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
+import { computeStage } from "@/lib/stages";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -21,13 +22,23 @@ export async function GET(request: Request) {
       id: true,
       name: true,
       email: true,
+      jobTitle: true,
+      team: true,
       selfAssessments: cycleId
-        ? { where: { cycleId }, select: { id: true, submittedAt: true } }
+        ? { where: { cycleId }, select: { id: true, submittedAt: true, performance: true, updatedAt: true, createdAt: true } }
         : undefined,
       managerAssessmentsReceived: cycleId
         ? {
             where: { cycleId, managerId: session.user.id },
-            select: { id: true, submittedAt: true, resultsSentAt: true },
+            select: {
+              id: true,
+              submittedAt: true,
+              sharedAt: true,
+              oneOnOneCompletedAt: true,
+              performance: true,
+              updatedAt: true,
+              createdAt: true,
+            },
           }
         : undefined,
     },
@@ -38,21 +49,39 @@ export async function GET(request: Request) {
     const selfAssessment = r.selfAssessments?.[0];
     const managerAssessment = r.managerAssessmentsReceived?.[0];
 
+    // Auto-created rows count as "not started" until something is saved
+    const selfStarted = !!selfAssessment && (selfAssessment.performance !== null || selfAssessment.updatedAt.getTime() !== selfAssessment.createdAt.getTime());
+    const managerStarted = !!managerAssessment && (managerAssessment.performance !== null || managerAssessment.updatedAt.getTime() !== managerAssessment.createdAt.getTime());
+
+    const stage = computeStage({
+      selfStarted,
+      selfSubmitted: !!selfAssessment?.submittedAt,
+      managerStarted,
+      managerSubmitted: !!managerAssessment?.submittedAt,
+      sharedAt: managerAssessment?.sharedAt,
+      oneOnOneCompletedAt: managerAssessment?.oneOnOneCompletedAt,
+    });
+
     return {
       id: r.id,
       name: r.name,
       email: r.email,
-      selfAssessmentStatus: !selfAssessment
+      jobTitle: r.jobTitle,
+      team: r.team,
+      managerAssessmentId: managerAssessment?.id ?? null,
+      selfAssessmentStatus: !selfAssessment || !selfStarted
         ? "not_started"
         : selfAssessment.submittedAt
           ? "submitted"
           : "draft",
-      managerAssessmentStatus: !managerAssessment
+      managerAssessmentStatus: !managerAssessment || !managerStarted
         ? "not_started"
         : managerAssessment.submittedAt
           ? "submitted"
           : "draft",
-      resultsSentAt: managerAssessment?.resultsSentAt ?? null,
+      sharedAt: managerAssessment?.sharedAt ?? null,
+      oneOnOneCompletedAt: managerAssessment?.oneOnOneCompletedAt ?? null,
+      stage,
     };
   });
 

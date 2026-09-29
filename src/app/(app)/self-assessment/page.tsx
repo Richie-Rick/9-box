@@ -31,6 +31,8 @@ export default function SelfAssessmentPage() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [previousGoals, setPreviousGoals] = useState<{ month: number; year: number; goalsNextMonth: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [submittedAt, setSubmittedAt] = useState<string | null>(null);
 
   useEffect(() => {
     if (!cycleId) return;
@@ -40,6 +42,7 @@ export default function SelfAssessmentPage() {
         if (Array.isArray(data) && data.length > 0) {
           const a = data[0] as Record<string, unknown>;
           setIsSubmitted(!!a.submittedAt);
+          setSubmittedAt((a.submittedAt as string | null) ?? null);
           setValues(pickValues(a));
           if (a._previous) setPreviousGoals(a._previous as { month: number; year: number; goalsNextMonth: string });
         }
@@ -68,8 +71,10 @@ export default function SelfAssessmentPage() {
         setError(data.error || "Could not save. Please try again.");
         return;
       }
+      if (editing && !submit) setEditing(false);
       if (submit) {
         setIsSubmitted(true);
+        setSubmittedAt(new Date().toISOString());
         if (data.bothComplete) {
           router.push(`/summary/${data.employeeId}?cycleId=${cycleId}`);
         }
@@ -80,7 +85,7 @@ export default function SelfAssessmentPage() {
       setSaving(false);
       setSubmitting(false);
     }
-  }, [cycleId, values, router]);
+  }, [cycleId, values, router, editing]);
 
   const userId = session?.user?.id;
   const userName = session?.user?.name ?? "";
@@ -155,6 +160,11 @@ export default function SelfAssessmentPage() {
         submitting={submitting}
         isSubmitted={isSubmitted}
         error={error}
+        editing={editing}
+        onStartEditing={() => setEditing(true)}
+        onCancelEditing={() => setEditing(false)}
+        submittedAt={submittedAt}
+        submittedNote="You can edit a section until your manager has read it."
         header={
           <div className="mb-6 space-y-4">
             {previousGoals && (

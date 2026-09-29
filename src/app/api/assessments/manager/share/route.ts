@@ -3,6 +3,10 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
 
+/**
+ * Shares the manager's submitted assessment with the employee ahead of the
+ * 1:1. The self-assessment does not have to be in yet; the client warns.
+ */
 export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -17,44 +21,24 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "assessmentId is required" }, { status: 400 });
   }
 
-  const assessment = await prisma.managerAssessment.findUnique({
-    where: { id: assessmentId },
-  });
-
+  const assessment = await prisma.managerAssessment.findUnique({ where: { id: assessmentId } });
   if (!assessment) {
     return NextResponse.json({ error: "Assessment not found" }, { status: 404 });
   }
-
   if (assessment.managerId !== session.user.id) {
     return NextResponse.json({ error: "Not your assessment" }, { status: 403 });
   }
-
   if (!assessment.submittedAt) {
-    return NextResponse.json({ error: "Manager assessment must be submitted first" }, { status: 400 });
+    return NextResponse.json({ error: "Submit your assessment before sharing it" }, { status: 400 });
   }
-
-  if (assessment.resultsSentAt) {
-    return NextResponse.json({ error: "Results have already been sent" }, { status: 400 });
-  }
-
-  // Verify self-assessment is submitted
-  const selfAssessment = await prisma.selfAssessment.findUnique({
-    where: {
-      cycleId_employeeId: {
-        cycleId: assessment.cycleId,
-        employeeId: assessment.employeeId,
-      },
-    },
-  });
-
-  if (!selfAssessment?.submittedAt) {
-    return NextResponse.json({ error: "Employee self-assessment must be submitted first" }, { status: 400 });
+  if (assessment.sharedAt) {
+    return NextResponse.json({ error: "Already shared" }, { status: 400 });
   }
 
   const updated = await prisma.managerAssessment.update({
     where: { id: assessmentId },
-    data: { resultsSentAt: new Date() },
+    data: { sharedAt: new Date() },
   });
 
-  return NextResponse.json({ resultsSentAt: updated.resultsSentAt });
+  return NextResponse.json({ sharedAt: updated.sharedAt });
 }

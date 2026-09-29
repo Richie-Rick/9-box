@@ -16,6 +16,7 @@ import {
   getBox2Color,
 } from "@/lib/nine-box";
 import { DimensionComparison } from "@/components/assessments/dimension-comparison";
+import { FromYourMeeting } from "@/components/assessments/from-your-meeting";
 
 interface SelfAssessmentData {
   [key: string]: unknown;
@@ -33,11 +34,15 @@ interface ManagerAssessmentData {
   valGiveEnergy: number | null;
   engagement: number | null;
   submittedAt: string | null;
-  resultsSentAt: string | null;
+  sharedAt: string | null;
+  lastEditedAt?: string | null;
+  oneOnOneNotes?: string | null;
+  oneOnOneCompletedAt?: string | null;
   manager: { id: string; name: string };
 }
 
 interface SummaryData {
+  managerAssessmentId?: string;
   employee: { id: string; name: string };
   cycle: { id: string; month: number; year: number; status: string } | null;
   selfAssessment: SelfAssessmentData | null;
@@ -71,8 +76,9 @@ export default function MyResultsPage() {
               const res = await fetch(`/api/assessments/summary?employeeId=${session.user.id}&cycleId=${cycle.id}`);
               if (res.ok) {
                 const data: SummaryData = await res.json();
-                if (data.selfAssessment?.submittedAt || data.managerAssessment?.submittedAt) {
-                  results.set(cycle.id, data);
+                const mgrId = (data.managerAssessment as unknown as { id?: string } | null)?.id;
+                if (data.selfAssessment?.submittedAt || data.managerAssessment?.submittedAt || data.managerAssessment?.sharedAt) {
+                  results.set(cycle.id, { ...data, managerAssessmentId: mgrId });
                 }
               }
             } catch { /* skip failed fetches */ }
@@ -103,7 +109,7 @@ export default function MyResultsPage() {
     .map((c) => {
       const d = summaries.get(c.id)!;
       const mgr = d.managerAssessment;
-      if (!mgr?.resultsSentAt || !mgr.performance) return null;
+      if (!mgr?.sharedAt || !mgr.performance) return null;
       const va = mgr.valCustomerFirst && mgr.valStepIntoArena && mgr.valFlockToProblems && mgr.valGiveEnergy
         ? getValuesAlignment(mgr.valCustomerFirst, mgr.valStepIntoArena, mgr.valFlockToProblems, mgr.valGiveEnergy)
         : null;
@@ -190,7 +196,7 @@ export default function MyResultsPage() {
         const box1Label = mgr?.performance && mgr?.growthReadiness ? getBox1Label(mgr.performance, mgr.growthReadiness) : null;
         const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
 
-        const showManager = !!mgr?.resultsSentAt;
+        const showManager = !!mgr?.sharedAt;
 
         const rows = buildComparisonRows(self, mgr, { showManager });
 
@@ -203,10 +209,16 @@ export default function MyResultsPage() {
                   {self?.submittedAt && (
                     <Badge className="bg-green-100 text-green-800 border-green-300">Self-Assessment Submitted</Badge>
                   )}
-                  {mgr?.resultsSentAt ? (
-                    <Badge className="bg-green-100 text-green-800 border-green-300">Results Shared</Badge>
+                  {mgr?.sharedAt ? (
+                    <Badge className="bg-green-100 text-green-800 border-green-300">Review shared</Badge>
                   ) : (
-                    <Badge className="bg-amber-100 text-amber-800 border-amber-300">Pending Manager Review</Badge>
+                    <Badge className="bg-amber-100 text-amber-800 border-amber-300">Manager review not yet shared</Badge>
+                  )}
+                  {mgr?.sharedAt && mgr.lastEditedAt && new Date(mgr.lastEditedAt) > new Date(mgr.sharedAt) && (
+                    <Badge className="bg-blue-100 text-blue-800 border-blue-300">Updated since shared</Badge>
+                  )}
+                  {mgr?.oneOnOneCompletedAt && (
+                    <Badge className="bg-green-100 text-green-800 border-green-300">1:1 held</Badge>
                   )}
                 </div>
               </div>
@@ -239,6 +251,10 @@ export default function MyResultsPage() {
                   <p className="text-xs text-gray-500 mb-2">Click a dimension to expand and compare notes</p>
                   <DimensionComparison rows={rows} showManagerColumn={showManager} />
                 </div>
+              )}
+
+              {showManager && mgr?.oneOnOneCompletedAt && (
+                <FromYourMeeting assessmentId={data.managerAssessmentId} notes={mgr.oneOnOneNotes ?? null} heldAt={mgr.oneOnOneCompletedAt} />
               )}
 
             </CardContent>

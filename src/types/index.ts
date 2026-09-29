@@ -35,7 +35,12 @@ export interface ManagerAssessmentData {
   engagement: number | null;
   engagementEvidence: string | null;
   notes: string | null;
+  initialRatings?: Record<string, number> | null;
   submittedAt: string | null;
+  sharedAt?: string | null;
+  oneOnOneCompletedAt?: string | null;
+  editCount?: number;
+  lastEditedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   employee?: { id: string; name: string; email: string; role: string; team: string | null; jobTitle: string | null };
@@ -69,7 +74,12 @@ export interface TeamMemberStatus {
   id: string;
   name: string;
   email: string;
+  jobTitle: string | null;
+  team: string | null;
+  managerAssessmentId: string | null;
   selfAssessmentStatus: "not_started" | "draft" | "submitted";
   managerAssessmentStatus: "not_started" | "draft" | "submitted";
-  resultsSentAt: string | null;
+  sharedAt: string | null;
+  oneOnOneCompletedAt: string | null;
+  stage: "not_started" | "in_progress" | "submitted" | "shared" | "meeting_done";
 }
