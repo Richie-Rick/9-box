@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/permissions";
+import { syncTemplateGoalsForUser } from "@/lib/job-roles";
 
 export async function GET() {
   const session = await auth();
@@ -18,6 +19,7 @@ export async function GET() {
       email: true,
       name: true,
       jobTitle: true,
+      jobRoleId: true,
       team: true,
       role: true,
       isActive: true,
@@ -40,7 +42,7 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const { userId, role, managerId, isActive, jobTitle, team } = await request.json();
+  const { userId, role, managerId, isActive, jobTitle, team, jobRoleId } = await request.json();
 
   if (!userId) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
@@ -57,12 +59,30 @@ export async function PUT(request: Request) {
   if (isActive !== undefined) data.isActive = isActive;
   if (jobTitle !== undefined) data.jobTitle = jobTitle || null;
   if (team !== undefined) data.team = team || null;
+  if (jobRoleId !== undefined) {
+    if (jobRoleId) {
+      const jobRole = await prisma.jobRole.findUnique({ where: { id: jobRoleId } });
+      if (!jobRole) {
+        return NextResponse.json({ error: "Job role not found" }, { status: 404 });
+      }
+      data.jobRoleId = jobRole.id;
+      data.jobTitle = jobRole.name;
+    } else {
+      data.jobRoleId = null;
+      data.jobTitle = null;
+    }
+  }
 
   const user = await prisma.user.update({
     where: { id: userId },
     data,
-    select: { id: true, email: true, name: true, jobTitle: true, team: true, role: true, isActive: true, managerId: true },
+    select: { id: true, email: true, name: true, jobTitle: true, jobRoleId: true, team: true, role: true, isActive: true, managerId: true },
   });
+
+  // Role or team changes can bring new role-set goals with them
+  if (jobRoleId !== undefined || team !== undefined || isActive === true) {
+    await syncTemplateGoalsForUser(user.id);
+  }
 
   return NextResponse.json(user);
 }

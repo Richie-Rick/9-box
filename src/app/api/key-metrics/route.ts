@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isManager, canAccessEmployee, canManageEmployee } from "@/lib/permissions";
+import { canAccessEmployee, canManageEmployee } from "@/lib/permissions";
+import { effectiveMetrics } from "@/lib/job-roles";
 
+/** Personal metrics plus role-set templates, with results for the cycle. */
 export async function GET(request: Request) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -11,6 +13,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const employeeId = searchParams.get("employeeId");
+  const cycleId = searchParams.get("cycleId");
 
   if (!employeeId) {
     return NextResponse.json({ error: "employeeId is required" }, { status: 400 });
@@ -20,12 +23,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const metrics = await prisma.keyMetric.findMany({
-    where: { employeeId },
-    include: { createdBy: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "desc" },
-  });
-
+  const metrics = await effectiveMetrics(employeeId, cycleId);
   return NextResponse.json(metrics);
 }
 
@@ -34,6 +32,7 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
   const { employeeId, name, target, unit, notes } = await request.json();
 
   if (!employeeId || !name || !target) {
@@ -48,15 +47,15 @@ export async function POST(request: Request) {
     data: {
       employeeId,
       createdById: session.user.id,
-      name,
-      target,
-      unit: unit || null,
-      notes: notes || null,
+      name: String(name).trim(),
+      target: String(target).trim(),
+      unit: unit ? String(unit).trim() : null,
+      notes: notes ? String(notes).trim() : null,
     },
     include: { createdBy: { select: { id: true, name: true } } },
   });
 
-  return NextResponse.json(metric);
+  return NextResponse.json({ ...metric, source: "personal", keyMetricId: metric.id, metricTemplateId: null, result: null, latestResult: null });
 }
 
 export async function PATCH(request: Request) {
@@ -76,17 +75,19 @@ export async function PATCH(request: Request) {
   }
 
   const isOwner = metric.employeeId === session.user.id;
-  const isCreator = metric.createdById === session.user.id;
-  const isAdmin = session.user.role === "ADMIN";
-  if (!isOwner && !isCreator && !isAdmin && !isManager(session.user.role)) {
+  const canManage = await canManageEmployee(session.user.id, session.user.role, metric.employeeId);
+  if (!isOwner && !canManage) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const data: Record<string, unknown> = {};
-  if (name !== undefined) data.name = name;
-  if (target !== undefined) data.target = target;
-  if (unit !== undefined) data.unit = unit || null;
-  if (notes !== undefined) data.notes = notes || null;
+  // The employee may only add notes; the manager may change the definition
+  if (canManage) {
+    if (name !== undefined) data.name = String(name).trim();
+    if (target !== undefined) data.target = String(target).trim();
+    if (unit !== undefined) data.unit = unit ? String(unit).trim() : null;
+  }
+  if (notes !== undefined) data.notes = notes ? String(notes).trim() : null;
 
   const updated = await prisma.keyMetric.update({
     where: { id: metricId },
@@ -114,9 +115,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Metric not found" }, { status: 404 });
   }
 
-  const isCreator = metric.createdById === session.user.id;
-  const isAdmin = session.user.role === "ADMIN";
-  if (!isCreator && !isAdmin) {
+  if (!(await canManageEmployee(session.user.id, session.user.role, metric.employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

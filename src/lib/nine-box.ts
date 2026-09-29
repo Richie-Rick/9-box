@@ -163,3 +163,24 @@ export const GROWTH_READINESS_LABELS: Record<number, string> = {
   2: "Building",
   3: "Ready Now",
 };
+
+// Talent tiers: which boxes count as top, medium and low talent.
+export type Tier = "top" | "medium" | "low";
+
+export const BOX1_TIERS: Record<Tier, string[]> = {
+  top: ["Ready to Promote", "Stretch & Develop", "Expand the Role"],
+  medium: ["Keep Growing", "Deepen the Expertise", "Remove the Blockers"],
+  low: ["Intervene Now", "Build the Foundations", "Maintain & Recognise"],
+};
+
+export const BOX2_TIERS: Record<Tier, string[]> = {
+  top: ["Protect & Amplify", "Reinforce the Behaviours", "Invest Deeper"],
+  medium: ["Stay the Course", "Re-energise Now", "Redirect the Energy"],
+  low: ["Assess the Fit", "Have the Conversation", "Find What's Draining"],
+};
+
+export function getTier(label: string, tiers: Record<Tier, string[]>): Tier {
+  if (tiers.top.includes(label)) return "top";
+  if (tiers.medium.includes(label)) return "medium";
+  return "low";
+}

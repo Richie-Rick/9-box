@@ -6,6 +6,8 @@ import { useSession } from "next-auth/react";
 import { AssessmentForm, RatingInput, TextInput, type FormSection } from "@/components/assessments/assessment-form";
 import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
 import { GoalUpdatesEditor } from "@/components/goals/goal-updates-editor";
+import { MetricResultsEditor } from "@/components/goals/metric-results-editor";
+import { MetricResultsTable } from "@/components/goals/metric-results-table";
 import { SECTIONS, withName, fieldsFor } from "@/lib/assessment-sections";
 import { formatCyclePeriod } from "@/lib/utils";
 
@@ -33,6 +35,7 @@ export default function SelfAssessmentPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+  const [resultsVersion, setResultsVersion] = useState(0);
 
   useEffect(() => {
     if (!cycleId) return;
@@ -91,7 +94,16 @@ export default function SelfAssessmentPage() {
   const userName = session?.user?.name ?? "";
 
   const sections: FormSection[] = useMemo(() => {
-    return SECTIONS.map((section) => ({
+    const resultsSection: FormSection = {
+      id: "results",
+      title: "Record results",
+      intro: "Your actuals against this month's key metrics. Skip if you have none.",
+      questions: [],
+      footer: cycleId && userId ? (
+        <MetricResultsEditor employeeId={userId} cycleId={cycleId} disabled={isSubmitted && !editing} onChange={() => setResultsVersion((v) => v + 1)} />
+      ) : undefined,
+    };
+    const mapped: FormSection[] = SECTIONS.map((section) => ({
       id: section.id,
       title: section.title,
       intro: section.intro,
@@ -104,6 +116,10 @@ export default function SelfAssessmentPage() {
             title: withName(q.titles.self, userName),
             description: withName(q.descriptions?.self, userName),
             required: q.required,
+            before:
+              q.id === "performance.rating" && cycleId && userId ? (
+                <MetricResultsTable employeeId={userId} cycleId={cycleId} rating={values.performance as number | null} refreshKey={resultsVersion} />
+              ) : undefined,
             render:
               q.kind === "rating"
                 ? (val: unknown, onChange: (v: unknown) => void) => (
@@ -128,7 +144,8 @@ export default function SelfAssessmentPage() {
           <GoalUpdatesEditor employeeId={userId} cycleId={cycleId} authorId={userId} disabled={isSubmitted} />
         ) : undefined,
     }));
-  }, [cycleId, userId, userName, isSubmitted]);
+    return [resultsSection, ...mapped];
+  }, [cycleId, userId, userName, isSubmitted, editing, values.performance, resultsVersion]);
 
   if (!cycleId) {
     return (

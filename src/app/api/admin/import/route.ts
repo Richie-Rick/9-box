@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/permissions";
 import { sendInviteEmail, buildInviteUrl } from "@/lib/email";
+import { ensureJobRole } from "@/lib/job-roles";
 
 const VALID_ROLES = ["EMPLOYEE", "MANAGER", "AREA_LEAD", "LEADERSHIP", "ADMIN"];
 
@@ -176,13 +177,14 @@ export async function POST(request: Request) {
     const role = row.role && VALID_ROLES.includes(row.role) ? row.role : "EMPLOYEE";
     const managerId = row.managerEmail ? emailToUserId.get(row.managerEmail) ?? null : null;
     const token = randomBytes(32).toString("hex");
+    const jobRole = await ensureJobRole(row.jobTitle);
 
     await prisma.invitation.create({
       data: {
         name: row.name,
         email: row.email,
         role: role as "EMPLOYEE" | "MANAGER" | "AREA_LEAD" | "LEADERSHIP" | "ADMIN",
-        jobTitle: row.jobTitle || null,
+        jobTitle: jobRole?.name ?? null,
         team: row.team || null,
         managerId,
         token,

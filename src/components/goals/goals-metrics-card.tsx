@@ -31,7 +31,10 @@ export interface MetricData {
   unit: string | null;
   notes: string | null;
   source?: "personal" | "role";
-  latestResult?: { actual: string; achieved: boolean | null } | null;
+  keyMetricId?: string | null;
+  metricTemplateId?: string | null;
+  result?: { actual: string; achieved: boolean | null; recordedBy?: { name: string } } | null;
+  latestResult?: { actual: string; achieved: boolean | null; recordedBy?: { name: string } } | null;
 }
 
 export const UPDATE_STATUS_LABEL: Record<GoalUpdateData["status"], string> = {
@@ -104,10 +107,10 @@ export function GoalsMetricsCard({
 
   useEffect(() => {
     let cancelled = false;
-    const goalsUrl = `/api/goals?employeeId=${employeeId}${cycleId ? `&cycleId=${cycleId}` : ""}`;
+    const cycleParam = cycleId ? `&cycleId=${cycleId}` : "";
     Promise.all([
-      fetchList<GoalData>(goalsUrl),
-      fetchList<MetricData>(`/api/key-metrics?employeeId=${employeeId}`),
+      fetchList<GoalData>(`/api/goals?employeeId=${employeeId}${cycleParam}`),
+      fetchList<MetricData>(`/api/key-metrics?employeeId=${employeeId}${cycleParam}`),
     ])
       .then(([g, m]) => {
         if (cancelled) return;
@@ -367,24 +370,28 @@ export function GoalsMetricsCard({
           <div>
             <p className="text-xs font-medium text-gray-500 uppercase mb-2">Key metrics</p>
             <ul className="divide-y divide-gray-100">
-              {metrics.map((m) => (
-                <li key={m.id} className="py-1.5 flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-sm text-visory-navy truncate">{m.name}</span>
-                    <SourceBadge source={m.source ?? "personal"} />
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-medium text-gray-700">
-                      Target {m.target}{m.unit ? ` ${m.unit}` : ""}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {m.latestResult
-                        ? `Latest ${m.latestResult.actual}${m.unit ? ` ${m.unit}` : ""}`
-                        : "No result recorded yet"}
-                    </p>
-                  </div>
-                </li>
-              ))}
+              {metrics.map((m) => {
+                const shown = m.result ?? m.latestResult ?? null;
+                const label = m.result ? "This month" : "Latest";
+                return (
+                  <li key={m.id} className="py-1.5 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm text-visory-navy truncate">{m.name}</span>
+                      <SourceBadge source={m.source ?? "personal"} />
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-medium text-gray-700">
+                        Target {m.target}{m.unit ? ` ${m.unit}` : ""}
+                      </p>
+                      <p className="text-xs text-gray-400 flex items-center justify-end gap-1">
+                        {shown ? `${label} ${shown.actual}${m.unit ? ` ${m.unit}` : ""}` : "No result recorded yet"}
+                        {shown?.achieved === true && <Badge className="bg-green-100 text-green-800 border-green-300 text-[10px]">Hit</Badge>}
+                        {shown?.achieved === false && <Badge className="bg-red-100 text-red-800 border-red-300 text-[10px]">Missed</Badge>}
+                      </p>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

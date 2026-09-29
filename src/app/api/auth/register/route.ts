@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { ensureJobRole, syncTemplateGoalsForUser } from "@/lib/job-roles";
 
 export async function POST(request: Request) {
   try {
@@ -34,12 +35,14 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Email does not match the invitation" }, { status: 400 });
       }
 
+      const jobRole = await ensureJobRole(invitation.jobTitle);
       const user = await prisma.user.create({
         data: {
           name: name || invitation.name,
           email: invitation.email,
           passwordHash,
-          jobTitle: invitation.jobTitle,
+          jobTitle: jobRole?.name ?? invitation.jobTitle,
+          jobRoleId: jobRole?.id ?? null,
           team: invitation.team,
           role: invitation.role,
           managerId: invitation.managerId,
@@ -50,6 +53,7 @@ export async function POST(request: Request) {
         where: { id: invitation.id },
         data: { usedAt: new Date() },
       });
+      await syncTemplateGoalsForUser(user.id);
 
       return NextResponse.json({ id: user.id, email: user.email, name: user.name }, { status: 201 });
     }
@@ -60,12 +64,14 @@ export async function POST(request: Request) {
     });
 
     if (invitation) {
+      const jobRole = await ensureJobRole(invitation.jobTitle);
       const user = await prisma.user.create({
         data: {
           name: name || invitation.name,
           email: invitation.email,
           passwordHash,
-          jobTitle: invitation.jobTitle,
+          jobTitle: jobRole?.name ?? invitation.jobTitle,
+          jobRoleId: jobRole?.id ?? null,
           team: invitation.team,
           role: invitation.role,
           managerId: invitation.managerId,
@@ -76,6 +82,7 @@ export async function POST(request: Request) {
         where: { id: invitation.id },
         data: { usedAt: new Date() },
       });
+      await syncTemplateGoalsForUser(user.id);
 
       return NextResponse.json({ id: user.id, email: user.email, name: user.name }, { status: 201 });
     }

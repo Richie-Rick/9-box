@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getRatingLabel, getRatingColor, getGrowthReadinessLabel, formatCyclePeriod, getRoleDisplayName } from "@/lib/utils";
 import { getValuesAlignment } from "@/lib/nine-box";
+import { SourceBadge } from "@/components/goals/goals-metrics-card";
 
 interface EmployeeProfile {
   id: string;
@@ -50,7 +51,9 @@ interface KeyMetricData {
   target: string;
   unit: string | null;
   notes: string | null;
-  createdBy: { id: string; name: string };
+  source: "personal" | "role";
+  createdBy: { id: string; name: string } | null;
+  latestResult: { actual: string; achieved: boolean | null } | null;
 }
 
 export default function EmployeeProfilePage({ params }: { params: Promise<{ employeeId: string }> }) {
@@ -228,7 +231,7 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold">Key Metrics</h2>
-              <p className="text-xs text-gray-500">Recurring performance targets</p>
+              <p className="text-xs text-gray-500">Recurring performance targets. Role-set metrics come from the admin&apos;s role templates.</p>
             </div>
             {canEdit && !showMetricForm && (
               <Button size="sm" variant="secondary" onClick={() => setShowMetricForm(true)}>
@@ -284,19 +287,25 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
                 <div key={metric.id} className="py-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-visory-navy">{metric.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-visory-navy">{metric.name}</p>
+                        <SourceBadge source={metric.source} />
+                      </div>
                       <p className="text-xs text-gray-500">
                         Target: <span className="font-medium">{metric.target}</span>
                         {metric.unit && <span> {metric.unit}</span>}
+                        {metric.latestResult && (
+                          <span className="ml-2">Latest: <span className="font-medium">{metric.latestResult.actual}</span>{metric.unit ? ` ${metric.unit}` : ""}</span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-1">
-                      {!metric.notes && editingNotes !== metric.id && (
+                      {metric.source === "personal" && !metric.notes && editingNotes !== metric.id && (
                         <Button size="sm" variant="ghost" onClick={() => { setEditingNotes(metric.id); setEditNotesValue(""); }}>
                           Add Note
                         </Button>
                       )}
-                      {canEdit && (
+                      {canEdit && metric.source === "personal" && (
                         <Button size="sm" variant="ghost" onClick={() => handleDeleteMetric(metric.id)}>
                           Remove
                         </Button>
@@ -305,8 +314,8 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
                   </div>
                   {metric.notes && editingNotes !== metric.id && (
                     <div
-                      className="mt-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-100"
-                      onClick={() => { setEditingNotes(metric.id); setEditNotesValue(metric.notes || ""); }}
+                      className={`mt-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 ${metric.source === "personal" ? "cursor-pointer hover:bg-gray-100" : ""}`}
+                      onClick={() => { if (metric.source === "personal") { setEditingNotes(metric.id); setEditNotesValue(metric.notes || ""); } }}
                     >
                       {metric.notes}
                     </div>

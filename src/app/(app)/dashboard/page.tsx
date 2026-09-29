@@ -412,7 +412,7 @@ function ManagerDashboard() {
 
       {/* Admin quick links */}
       {role === "ADMIN" && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => router.push("/admin/cycles")}>
             <CardContent className="py-4">
               <h3 className="text-sm font-semibold text-visory-navy">Assessment Cycles</h3>
@@ -423,6 +423,12 @@ function ManagerDashboard() {
             <CardContent className="py-4">
               <h3 className="text-sm font-semibold text-visory-navy">User Management</h3>
               <p className="text-xs text-gray-600 mt-1">Invite users, assign roles and managers</p>
+            </CardContent>
+          </Card>
+          <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => router.push("/admin/roles")}>
+            <CardContent className="py-4">
+              <h3 className="text-sm font-semibold text-visory-navy">Roles &amp; Templates</h3>
+              <p className="text-xs text-gray-600 mt-1">Role-set metrics and goals</p>
             </CardContent>
           </Card>
         </div>

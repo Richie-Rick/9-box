@@ -14,11 +14,18 @@ interface UserData {
   email: string;
   name: string;
   jobTitle: string | null;
+  jobRoleId: string | null;
   team: string | null;
   role: string;
   isActive: boolean;
   managerId: string | null;
   manager: { id: string; name: string } | null;
+}
+
+interface JobRoleOption {
+  id: string;
+  name: string;
+  isActive: boolean;
 }
 
 interface InvitationData {
@@ -51,6 +58,7 @@ export default function AdminUsersPage() {
   const [resendingEmail, setResendingEmail] = useState<string | null>(null);
   const [copiedJoinLink, setCopiedJoinLink] = useState(false);
   const [pasteData, setPasteData] = useState("");
+  const [jobRoles, setJobRoles] = useState<JobRoleOption[]>([]);
 
   useEffect(() => {
     if (session?.user?.role !== "ADMIN") {
@@ -59,6 +67,9 @@ export default function AdminUsersPage() {
     }
     loadUsers();
     loadInvitations();
+    fetch("/api/admin/roles").then((r) => r.json()).then((data) => {
+      if (Array.isArray(data)) setJobRoles(data.map((r: JobRoleOption) => ({ id: r.id, name: r.name, isActive: r.isActive })));
+    });
   }, [session, router]);
 
   function loadUsers() {
@@ -234,12 +245,20 @@ export default function AdminUsersPage() {
                   onChange={(e) => setNewInvite((u) => ({ ...u, email: e.target.value }))}
                   required
                 />
-                <Input
-                  label="Job Title"
-                  value={newInvite.jobTitle}
-                  onChange={(e) => setNewInvite((u) => ({ ...u, jobTitle: e.target.value }))}
-                  placeholder="e.g. Senior Developer"
-                />
+                <div>
+                  <label className="block text-sm font-semibold text-visory-navy mb-1">Job Role</label>
+                  <input
+                    list="job-role-options"
+                    value={newInvite.jobTitle}
+                    onChange={(e) => setNewInvite((u) => ({ ...u, jobTitle: e.target.value }))}
+                    placeholder="Pick a role or type a new one"
+                    className="block w-full rounded-lg border border-visory-border px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-visory focus:border-visory"
+                  />
+                  <datalist id="job-role-options">
+                    {jobRoles.filter((r) => r.isActive).map((r) => <option key={r.id} value={r.name} />)}
+                  </datalist>
+                  <p className="text-xs text-gray-500 mt-1">Role-set metrics and goals attach to the role. <a href="/admin/roles" className="text-visory-link underline">Manage roles</a></p>
+                </div>
                 <Input
                   label="Team"
                   value={newInvite.team}
@@ -431,12 +450,17 @@ export default function AdminUsersPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    defaultValue={user.jobTitle || ""}
-                    onBlur={(e) => { if (e.target.value !== (user.jobTitle || "")) updateUser(user.id, { jobTitle: e.target.value }); }}
-                    placeholder="Job title"
-                    className="rounded-lg border border-gray-300 px-2 py-1 text-xs w-28 focus:outline-none focus:ring-2 focus:ring-visory"
-                  />
+                  <select
+                    value={user.jobRoleId || ""}
+                    onChange={(e) => updateUser(user.id, { jobRoleId: e.target.value || null })}
+                    className="rounded-lg border border-gray-300 px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-visory"
+                    title="Job role"
+                  >
+                    <option value="">No role</option>
+                    {jobRoles.filter((r) => r.isActive || r.id === user.jobRoleId).map((r) => (
+                      <option key={r.id} value={r.id}>{r.name}</option>
+                    ))}
+                  </select>
                   <input
                     defaultValue={user.team || ""}
                     onBlur={(e) => { if (e.target.value !== (user.team || "")) updateUser(user.id, { team: e.target.value }); }}

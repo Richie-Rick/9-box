@@ -44,6 +44,8 @@ model User {
   name         String
   passwordHash String
   jobTitle     String?
+  jobRoleId    String?
+  jobRole      JobRole? @relation(fields: [jobRoleId], references: [id])
   team         String?
   role         Role     @default(EMPLOYEE)
   managerId    String?
@@ -62,11 +64,89 @@ model User {
   goalsProposed              Goal[]             @relation("GoalProposer")
   goalUpdates                GoalUpdate[]
   revisionsMade              AssessmentRevision[] @relation("RevisionAuthor")
+  metricResultsRecorded      KeyMetricResult[]  @relation("MetricResultRecorder")
+  metricResults              KeyMetricResult[]  @relation("EmployeeMetricResults")
+  metricTemplatesCreated     MetricTemplate[]
+  goalTemplatesCreated       GoalTemplate[]
   keyMetrics                 KeyMetric[]        @relation("EmployeeKeyMetrics")
   keyMetricsCreated          KeyMetric[]        @relation("KeyMetricCreator")
 
   @@index([managerId])
   @@index([role])
+  @@index([jobRoleId])
+}
+
+model JobRole {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users           User[]
+  metricTemplates MetricTemplate[]
+  goalTemplates   GoalTemplate[]
+}
+
+model MetricTemplate {
+  id          String   @id @default(cuid())
+  jobRoleId   String
+  jobRole     JobRole  @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  team        String?
+  name        String
+  target      String
+  unit        String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  results KeyMetricResult[]
+
+  @@index([jobRoleId])
+}
+
+model GoalTemplate {
+  id            String   @id @default(cuid())
+  jobRoleId     String
+  jobRole       JobRole  @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  team          String?
+  title         String
+  description   String?
+  dueOffsetDays Int?
+  isActive      Boolean  @default(true)
+  createdById   String
+  createdBy     User     @relation(fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  goals Goal[]
+
+  @@index([jobRoleId])
+}
+
+model KeyMetricResult {
+  id               String          @id @default(cuid())
+  employeeId       String
+  employee         User            @relation("EmployeeMetricResults", fields: [employeeId], references: [id], onDelete: Cascade)
+  cycleId          String
+  cycle            AssessmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  keyMetricId      String?
+  keyMetric        KeyMetric?      @relation(fields: [keyMetricId], references: [id], onDelete: Cascade)
+  metricTemplateId String?
+  metricTemplate   MetricTemplate? @relation(fields: [metricTemplateId], references: [id], onDelete: Cascade)
+  actual           String
+  achieved         Boolean?
+  note             String?
+  recordedById     String
+  recordedBy       User            @relation("MetricResultRecorder", fields: [recordedById], references: [id])
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([employeeId, cycleId, keyMetricId])
+  @@unique([employeeId, cycleId, metricTemplateId])
+  @@index([cycleId])
 }
 
 model Invitation {
@@ -95,6 +175,7 @@ model AssessmentCycle {
   managerAssessments ManagerAssessment[]
   selfAssessments    SelfAssessment[]
   goalUpdates        GoalUpdate[]
+  metricResults      KeyMetricResult[]
 
   @@unique([month, year])
 }
@@ -233,6 +314,8 @@ model Goal {
   createdBy   User       @relation("GoalCreator", fields: [createdById], references: [id])
   proposedById String?
   proposedBy  User?      @relation("GoalProposer", fields: [proposedById], references: [id])
+  templateId  String?
+  template    GoalTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   title       String
   description String?
   dueDate     DateTime?
@@ -276,6 +359,8 @@ model KeyMetric {
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  results     KeyMetricResult[]
 
   @@index([employeeId])
   @@index([createdById])

@@ -7,6 +7,8 @@ import { AssessmentForm, RatingInput, TextInput, type FormSection } from "@/comp
 import { RevealPanel, type RevealState } from "@/components/assessments/reveal-panel";
 import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
 import { GoalUpdatesEditor } from "@/components/goals/goal-updates-editor";
+import { MetricResultsEditor } from "@/components/goals/metric-results-editor";
+import { MetricResultsTable } from "@/components/goals/metric-results-table";
 import { SECTIONS, withName, fieldsFor, sectionRatingFields } from "@/lib/assessment-sections";
 import { MANAGER_RESPONSE_FIELDS } from "@/lib/assessment-fields";
 import { Button } from "@/components/ui/button";
@@ -42,6 +44,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const [meta, setMeta] = useState<{ submittedAt: string | null; sharedAt: string | null; editCount: number }>({ submittedAt: null, sharedAt: null, editCount: 0 });
   const [reasonPrompt, setReasonPrompt] = useState(false);
   const [reason, setReason] = useState("");
+  const [resultsVersion, setResultsVersion] = useState(0);
 
   const fetchReveal = useCallback(
     async (sectionId: string) => {
@@ -154,7 +157,16 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   );
 
   const sections: FormSection[] = useMemo(() => {
-    return SECTIONS.map((section) => {
+    const resultsSection: FormSection = {
+      id: "results",
+      title: "Record results",
+      intro: "Actuals against this month's key metrics. Either of you can fill this in; skip it if there are none.",
+      questions: [],
+      footer: cycleId ? (
+        <MetricResultsEditor employeeId={employeeId} cycleId={cycleId} onChange={() => setResultsVersion((v) => v + 1)} />
+      ) : undefined,
+    };
+    const mapped: FormSection[] = SECTIONS.map((section) => {
       const ratingFields = sectionRatingFields(section.id, "manager");
       const canReveal = ratingFields.length > 0 && ratingFields.every((f) => values[f] !== null && values[f] !== undefined);
       return {
@@ -179,6 +191,13 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
                   busy={!!revealing[section.id]}
                   error={revealErrors[section.id]}
                   onReveal={() => reveal(section.id)}
+                />
+              ) : q.id === "performance.rating" && cycleId ? (
+                <MetricResultsTable
+                  employeeId={employeeId}
+                  cycleId={cycleId}
+                  rating={values.performance as number | null}
+                  refreshKey={resultsVersion}
                 />
               ) : undefined,
               render:
@@ -206,7 +225,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
           ) : undefined,
       };
     });
-  }, [employeeName, values, revealed, revealing, revealErrors, reveal, cycleId, employeeId, session?.user?.id]);
+    return [resultsSection, ...mapped];
+  }, [employeeName, values, revealed, revealing, revealErrors, reveal, cycleId, employeeId, session?.user?.id, resultsVersion]);
 
   if (!cycleId) {
     return (

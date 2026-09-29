@@ -104,21 +104,23 @@ export function AssessmentForm({
   const flat = useMemo(
     () =>
       sections.flatMap((section) =>
-        section.questions.map((question, indexInSection) => ({
-          section,
-          question,
-          indexInSection,
-          sectionCount: section.questions.length,
-        }))
+        section.questions.length === 0
+          ? [{ section, question: null as FormQuestion | null, indexInSection: 0, sectionCount: 1 }]
+          : section.questions.map((question, indexInSection) => ({
+              section,
+              question: question as FormQuestion | null,
+              indexInSection,
+              sectionCount: section.questions.length,
+            }))
       ),
     [sections]
   );
 
-  const required = flat.filter((f) => f.question.required);
-  const answered = required.filter((f) => !isEmpty(values[f.question.id]));
+  const required = flat.filter((f) => f.question?.required);
+  const answered = required.filter((f) => !isEmpty(values[f.question!.id]));
   const missing = required
     .map((f, i) => ({ ...f, index: flat.indexOf(f), key: i }))
-    .filter((f) => isEmpty(values[f.question.id]));
+    .filter((f) => isEmpty(values[f.question!.id]));
   const canSubmit = missing.length === 0 && !submitting && !isSubmitted;
 
   const safeStep = Math.min(currentStep, flat.length - 1);
@@ -191,16 +193,16 @@ export function AssessmentForm({
       </p>
       <ul className="flex flex-wrap gap-2">
         {missing.map((m) => (
-          <li key={m.question.id}>
+          <li key={m.question!.id}>
             <button
               type="button"
               onClick={() => {
                 if (layout === "steps") setCurrentStep(m.index);
-                else document.getElementById(`q-${m.question.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+                else document.getElementById(`q-${m.question!.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
               }}
               className="underline underline-offset-2 hover:text-amber-900"
             >
-              {m.question.title}
+              {m.question!.title}
             </button>
           </li>
         ))}
@@ -329,9 +331,13 @@ export function AssessmentForm({
         {current.section.intro && current.indexInSection === 0 && (
           <p className="text-xs uppercase tracking-wide text-gray-400 mb-3">{current.section.intro}</p>
         )}
-        {renderQuestion(current.question)}
+        {current.question ? (
+          renderQuestion(current.question)
+        ) : (
+          <h3 className="text-xl font-semibold text-visory-navy mb-3">{current.section.title}</h3>
+        )}
         {current.indexInSection === current.sectionCount - 1 && current.section.footer && (
-          <div className="mt-6 pt-4 border-t border-gray-100">{current.section.footer}</div>
+          <div className={current.question ? "mt-6 pt-4 border-t border-gray-100" : ""}>{current.section.footer}</div>
         )}
       </div>
 
