@@ -1,12 +1,23 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { StepForm, RatingStep, TextStep, type StepConfig } from "@/components/assessments/step-form";
-import { assessmentPrompts } from "@/lib/assessment-prompts";
-import { GoalsPanel } from "@/components/assessments/goals-panel";
+import { AssessmentForm, RatingInput, TextInput, type FormSection } from "@/components/assessments/assessment-form";
+import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
+import { GoalUpdatesEditor } from "@/components/goals/goal-updates-editor";
+import { SECTIONS, withName, fieldsFor } from "@/lib/assessment-sections";
 import { formatCyclePeriod } from "@/lib/utils";
+
+const SELF_FIELDS = fieldsFor("self");
+const ALL_SELF_FIELDS = [...SELF_FIELDS.rating, ...SELF_FIELDS.text];
+
+function pickValues(record: Record<string, unknown>): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of SELF_FIELDS.rating) values[field] = record[field] ?? null;
+  for (const field of SELF_FIELDS.text) values[field] = (record[field] as string | null) ?? "";
+  return values;
+}
 
 export default function SelfAssessmentPage() {
   const { data: session } = useSession();
@@ -14,7 +25,7 @@ export default function SelfAssessmentPage() {
   const router = useRouter();
   const cycleId = searchParams.get("cycleId");
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [assessmentId, setAssessmentId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
@@ -26,34 +37,21 @@ export default function SelfAssessmentPage() {
     fetch(`/api/assessments/self?cycleId=${cycleId}&prefill=true`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.length > 0) {
-          const a = data[0];
-          setAssessmentId(a.id);
+        if (Array.isArray(data) && data.length > 0) {
+          const a = data[0] as Record<string, unknown>;
           setIsSubmitted(!!a.submittedAt);
-          setValues({
-            performance: a.performance,
-            performanceJustification: a.performanceJustification || "",
-            achievements: a.achievements || "",
-            blockers: a.blockers || "",
-            learning: a.learning || "",
-            valCustomerFirst: a.valCustomerFirst,
-            valStepIntoArena: a.valStepIntoArena,
-            valFlockToProblems: a.valFlockToProblems,
-            valGiveEnergy: a.valGiveEnergy,
-            valuesReflection: a.valuesReflection || "",
-            engagement: a.engagement,
-            engagementDriver: a.engagementDriver || "",
-            supportNeeded: a.supportNeeded || "",
-            goalsNextMonth: a.goalsNextMonth || "",
-          });
-          if (a._previous) setPreviousGoals(a._previous);
+          setValues(pickValues(a));
+          if (a._previous) setPreviousGoals(a._previous as { month: number; year: number; goalsNextMonth: string });
         }
-      });
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
   }, [cycleId]);
 
   const save = useCallback(async (submit = false) => {
     if (!cycleId) return;
-    const body = { cycleId, ...values, submit };
+    const payload: Record<string, unknown> = { cycleId, submit };
+    for (const field of ALL_SELF_FIELDS) payload[field] = values[field] ?? null;
 
     if (submit) setSubmitting(true);
     else setSaving(true);
@@ -63,14 +61,13 @@ export default function SelfAssessmentPage() {
       const res = await fetch("/api/assessments/self", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || "Could not save. Please try again.");
         return;
       }
-      setAssessmentId(data.id);
       if (submit) {
         setIsSubmitted(true);
         if (data.bothComplete) {
@@ -83,93 +80,50 @@ export default function SelfAssessmentPage() {
       setSaving(false);
       setSubmitting(false);
     }
-  }, [cycleId, values]);
+  }, [cycleId, values, router]);
 
-  const steps: StepConfig[] = [
-    {
-      id: "performance",
-      required: true,
-      title: "How would you rate your performance this month?",
-      description: "Consider your output, quality of work, and meeting of objectives.",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.performance?.self} />,
-    },
-    {
-      id: "performanceJustification",
-      title: "What evidence supports your performance rating?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Describe your key contributions and results..." />,
-    },
-    {
-      id: "achievements",
-      title: "What are your key achievements this month?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="List your main accomplishments..." />,
-    },
-    {
-      id: "blockers",
-      title: "What blockers or challenges did you face?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Describe any obstacles that impacted your work..." />,
-    },
-    {
-      id: "learning",
-      title: "What did you learn this month?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Skills developed, insights gained..." />,
-    },
-    {
-      id: "valCustomerFirst",
-      required: true,
-      title: "Customer First",
-      description: "How well did you embody the 'Customer First' value?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valCustomerFirst?.self} />,
-    },
-    {
-      id: "valStepIntoArena",
-      required: true,
-      title: "Step Into the Arena",
-      description: "How well did you step up and take initiative?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valStepIntoArena?.self} />,
-    },
-    {
-      id: "valFlockToProblems",
-      required: true,
-      title: "Flock to Problems",
-      description: "How well did you seek out and address challenges?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valFlockToProblems?.self} />,
-    },
-    {
-      id: "valGiveEnergy",
-      required: true,
-      title: "Give Energy",
-      description: "How well did you energise and support those around you?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valGiveEnergy?.self} />,
-    },
-    {
-      id: "valuesReflection",
-      title: "Values Reflection",
-      description: "Share examples of how you demonstrated Visory values.",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Give specific examples..." />,
-    },
-    {
-      id: "engagement",
-      required: true,
-      title: "How engaged do you feel at work?",
-      description: "Consider your motivation, energy, and connection to the team.",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.engagement?.self} />,
-    },
-    {
-      id: "engagementDriver",
-      title: "What's driving your engagement level?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="What energises or drains you at work..." />,
-    },
-    {
-      id: "supportNeeded",
-      title: "What support do you need from your manager?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Resources, guidance, feedback..." />,
-    },
-    {
-      id: "goalsNextMonth",
-      title: "What are your goals for next month?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Key priorities and objectives..." />,
-    },
-  ];
+  const userId = session?.user?.id;
+  const userName = session?.user?.name ?? "";
+
+  const sections: FormSection[] = useMemo(() => {
+    return SECTIONS.map((section) => ({
+      id: section.id,
+      title: section.title,
+      intro: section.intro,
+      questions: section.questions
+        .filter((q) => q.fields.self)
+        .map((q) => {
+          const field = q.fields.self!;
+          return {
+            id: field,
+            title: withName(q.titles.self, userName),
+            description: withName(q.descriptions?.self, userName),
+            required: q.required,
+            render:
+              q.kind === "rating"
+                ? (val: unknown, onChange: (v: unknown) => void) => (
+                    <RatingInput
+                      value={val as number | null}
+                      onChange={onChange as (v: number) => void}
+                      labels={q.labels}
+                      prompts={q.prompts?.self}
+                    />
+                  )
+                : (val: unknown, onChange: (v: unknown) => void) => (
+                    <TextInput
+                      value={val as string}
+                      onChange={onChange as (v: string) => void}
+                      placeholder={q.placeholders?.self}
+                    />
+                  ),
+          };
+        }),
+      footer:
+        section.id === "ahead" && cycleId && userId ? (
+          <GoalUpdatesEditor employeeId={userId} cycleId={cycleId} authorId={userId} disabled={isSubmitted} />
+        ) : undefined,
+    }));
+  }, [cycleId, userId, userName, isSubmitted]);
 
   if (!cycleId) {
     return (
@@ -179,25 +133,20 @@ export default function SelfAssessmentPage() {
     );
   }
 
+  if (!loaded) {
+    return <div className="text-center py-12 text-gray-500">Loading...</div>;
+  }
+
   return (
     <div className="py-4">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-visory-navy">Self-Assessment</h1>
         <p className="text-sm text-gray-600 mt-1">
-          Take your time. Your responses auto-save as drafts.
+          Take your time. Save a draft whenever you like; your manager only sees it once you submit.
         </p>
       </div>
-      {previousGoals && (
-        <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 mb-6 max-w-2xl mx-auto">
-          <p className="text-xs font-medium text-blue-700 uppercase mb-1">
-            Last month ({formatCyclePeriod(previousGoals.month, previousGoals.year)}) you said your goals for this month were
-          </p>
-          <p className="text-sm text-blue-900 whitespace-pre-wrap">{previousGoals.goalsNextMonth}</p>
-        </div>
-      )}
-      {session?.user?.id && <GoalsPanel employeeId={session.user.id} />}
-      <StepForm
-        steps={steps}
+      <AssessmentForm
+        sections={sections}
         values={values}
         onChange={(key, val) => setValues((v) => ({ ...v, [key]: val }))}
         onSave={() => save(false)}
@@ -206,6 +155,19 @@ export default function SelfAssessmentPage() {
         submitting={submitting}
         isSubmitted={isSubmitted}
         error={error}
+        header={
+          <div className="mb-6 space-y-4">
+            {previousGoals && (
+              <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
+                <p className="text-xs font-medium text-blue-700 uppercase mb-1">
+                  Last month ({formatCyclePeriod(previousGoals.month, previousGoals.year)}) you said your goals for this month were
+                </p>
+                <p className="text-sm text-blue-900 whitespace-pre-wrap">{previousGoals.goalsNextMonth}</p>
+              </div>
+            )}
+            {userId && <GoalsMetricsCard employeeId={userId} cycleId={cycleId} isSelf variant="form" />}
+          </div>
+        }
       />
     </div>
   );

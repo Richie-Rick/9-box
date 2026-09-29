@@ -1,167 +1,188 @@
 "use client";
 
-import { useEffect, useState, useCallback, use } from "react";
+import { useEffect, useState, useCallback, useMemo, use } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { StepForm, RatingStep, TextStep, type StepConfig } from "@/components/assessments/step-form";
-import { assessmentPrompts } from "@/lib/assessment-prompts";
-import { GoalsPanel } from "@/components/assessments/goals-panel";
+import { useSession } from "next-auth/react";
+import { AssessmentForm, RatingInput, TextInput, type FormSection } from "@/components/assessments/assessment-form";
+import { RevealPanel, type RevealState } from "@/components/assessments/reveal-panel";
+import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
+import { GoalUpdatesEditor } from "@/components/goals/goal-updates-editor";
+import { SECTIONS, withName, fieldsFor, sectionRatingFields } from "@/lib/assessment-sections";
+import { MANAGER_RESPONSE_FIELDS } from "@/lib/assessment-fields";
+
+const MANAGER_FIELDS = fieldsFor("manager");
+const ALL_MANAGER_FIELDS = [...MANAGER_FIELDS.rating, ...MANAGER_FIELDS.text];
+
+function pickValues(record: Record<string, unknown>): Record<string, unknown> {
+  const values: Record<string, unknown> = {};
+  for (const field of MANAGER_FIELDS.rating) values[field] = record[field] ?? null;
+  for (const field of MANAGER_FIELDS.text) values[field] = (record[field] as string | null) ?? "";
+  return values;
+}
 
 export default function ManagerAssessPage({ params }: { params: Promise<{ employeeId: string }> }) {
   const { employeeId } = use(params);
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { data: session } = useSession();
   const cycleId = searchParams.get("cycleId");
+
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [assessmentId, setAssessmentId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [employeeName, setEmployeeName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
+  const [revealing, setRevealing] = useState<Record<string, boolean>>({});
+  const [revealErrors, setRevealErrors] = useState<Record<string, string>>({});
+
+  const fetchReveal = useCallback(
+    async (sectionId: string) => {
+      const res = await fetch(`/api/assessments/self-for-review?cycleId=${cycleId}&employeeId=${employeeId}&section=${sectionId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not reveal");
+      setRevealed((r) => ({ ...r, [sectionId]: { submitted: !!data.submitted, answers: data.answers ?? null } }));
+    },
+    [cycleId, employeeId]
+  );
 
   useEffect(() => {
     if (!cycleId) return;
     fetch(`/api/assessments/manager?cycleId=${cycleId}&employeeId=${employeeId}`)
       .then((r) => r.json())
       .then((data) => {
-        if (data.length > 0) {
-          const a = data[0];
-          setAssessmentId(a.id);
+        if (Array.isArray(data) && data.length > 0) {
+          const a = data[0] as Record<string, unknown>;
           setIsSubmitted(!!a.submittedAt);
-          setEmployeeName(a.employee?.name || "");
-          setValues({
-            performance: a.performance,
-            performanceEvidence: a.performanceEvidence || "",
-            growthReadiness: a.growthReadiness,
-            growthReadinessEvidence: a.growthReadinessEvidence || "",
-            valCustomerFirst: a.valCustomerFirst,
-            valStepIntoArena: a.valStepIntoArena,
-            valFlockToProblems: a.valFlockToProblems,
-            valGiveEnergy: a.valGiveEnergy,
-            valuesEvidence: a.valuesEvidence || "",
-            engagement: a.engagement,
-            engagementEvidence: a.engagementEvidence || "",
-            notes: a.notes || "",
-          });
+          setEmployeeName((a.employee as { name?: string } | undefined)?.name || "");
+          setValues(pickValues(a));
+          // Sections already revealed earlier come back open
+          const initial = (a.initialRatings as Record<string, number> | null) ?? {};
+          for (const section of SECTIONS) {
+            const fields = sectionRatingFields(section.id, "manager");
+            if (fields.length > 0 && fields.every((f) => f in initial)) {
+              fetchReveal(section.id).catch(() => {});
+            }
+          }
         }
-      });
-  }, [cycleId, employeeId]);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [cycleId, employeeId, fetchReveal]);
 
-  const save = useCallback(async (submit = false) => {
-    if (!cycleId) return;
-    const body = { cycleId, employeeId, ...values, submit };
+  const save = useCallback(
+    async (submit = false): Promise<boolean> => {
+      if (!cycleId) return false;
+      const payload: Record<string, unknown> = { cycleId, employeeId, submit };
+      for (const field of ALL_MANAGER_FIELDS) payload[field] = values[field] ?? null;
 
-    if (submit) setSubmitting(true);
-    else setSaving(true);
-    setError(null);
+      if (submit) setSubmitting(true);
+      else setSaving(true);
+      setError(null);
 
-    try {
-      const res = await fetch("/api/assessments/manager", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || "Could not save. Please try again.");
-        return;
-      }
-      setAssessmentId(data.id);
-      if (submit) {
-        setIsSubmitted(true);
-        if (data.bothComplete) {
-          router.push(`/summary/${employeeId}?cycleId=${cycleId}`);
+      try {
+        const res = await fetch("/api/assessments/manager", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error || "Could not save. Please try again.");
+          return false;
         }
+        if (submit) {
+          setIsSubmitted(true);
+          if (data.bothComplete) {
+            router.push(`/summary/${employeeId}?cycleId=${cycleId}`);
+          }
+        }
+        return true;
+      } catch {
+        setError("Could not reach the server. Check your connection and try again.");
+        return false;
+      } finally {
+        setSaving(false);
+        setSubmitting(false);
       }
-    } catch {
-      setError("Could not reach the server. Check your connection and try again.");
-    } finally {
-      setSaving(false);
-      setSubmitting(false);
-    }
-  }, [cycleId, employeeId, values]);
+    },
+    [cycleId, employeeId, values, router]
+  );
 
-  const steps: StepConfig[] = [
-    {
-      id: "performance",
-      required: true,
-      title: `Performance Rating${employeeName ? ` for ${employeeName}` : ""}`,
-      description: "Rate this employee's performance against objectives.",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.performance?.manager} />,
+  const reveal = useCallback(
+    async (sectionId: string) => {
+      setRevealing((r) => ({ ...r, [sectionId]: true }));
+      setRevealErrors((e) => ({ ...e, [sectionId]: "" }));
+      try {
+        // Ratings must be saved before the server will reveal
+        const saved = isSubmitted ? true : await save(false);
+        if (!saved) return;
+        await fetchReveal(sectionId);
+      } catch (err) {
+        setRevealErrors((e) => ({ ...e, [sectionId]: (err as Error).message }));
+      } finally {
+        setRevealing((r) => ({ ...r, [sectionId]: false }));
+      }
     },
-    {
-      id: "performanceEvidence",
-      title: "Performance Evidence",
-      description: "What evidence supports this rating?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Describe specific examples of performance..." />,
-    },
-    {
-      id: "growthReadiness",
-      required: true,
-      title: "Growth Readiness Rating",
-      description: "Rate this employee's readiness for growth and advancement.",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} labels={{ 1: "Developing", 2: "Building", 3: "Ready Now" }} prompts={assessmentPrompts.growthReadiness?.manager} />,
-    },
-    {
-      id: "growthReadinessEvidence",
-      title: "Growth Readiness Evidence",
-      description: "What evidence supports this growth readiness rating?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Describe growth indicators, learning agility..." />,
-    },
-    {
-      id: "valCustomerFirst",
-      required: true,
-      title: "Customer First",
-      description: "How well does this employee embody 'Customer First'?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valCustomerFirst?.manager} />,
-    },
-    {
-      id: "valStepIntoArena",
-      required: true,
-      title: "Step Into the Arena",
-      description: "How well does this employee take initiative and show courage?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valStepIntoArena?.manager} />,
-    },
-    {
-      id: "valFlockToProblems",
-      required: true,
-      title: "Flock to Problems",
-      description: "How well does this employee seek out and address challenges?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valFlockToProblems?.manager} />,
-    },
-    {
-      id: "valGiveEnergy",
-      required: true,
-      title: "Give Energy",
-      description: "How well does this employee energise and uplift the team?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valGiveEnergy?.manager} />,
-    },
-    {
-      id: "valuesEvidence",
-      title: "Values Evidence",
-      description: "Provide examples of values-aligned behaviour.",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Specific examples..." />,
-    },
-    {
-      id: "engagement",
-      required: true,
-      title: "Engagement Rating",
-      description: "How engaged does this employee appear?",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.engagement?.manager} />,
-    },
-    {
-      id: "engagementEvidence",
-      title: "Engagement Evidence",
-      description: "What observations support this engagement rating?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Observable behaviours..." />,
-    },
-    {
-      id: "notes",
-      title: "Additional Notes",
-      description: "Any other observations or feedback for this employee.",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Additional context, action items..." />,
-    },
-  ];
+    [save, fetchReveal, isSubmitted]
+  );
+
+  const sections: FormSection[] = useMemo(() => {
+    return SECTIONS.map((section) => {
+      const ratingFields = sectionRatingFields(section.id, "manager");
+      const canReveal = ratingFields.length > 0 && ratingFields.every((f) => values[f] !== null && values[f] !== undefined);
+      return {
+        id: section.id,
+        title: section.title,
+        intro: section.intro,
+        questions: section.questions
+          .filter((q) => q.fields.manager)
+          .map((q) => {
+            const field = q.fields.manager!;
+            return {
+              id: field,
+              title: withName(q.titles.manager, employeeName),
+              description: withName(q.descriptions?.manager, employeeName),
+              required: q.required,
+              before: q.isResponse ? (
+                <RevealPanel
+                  employeeName={employeeName}
+                  section={section}
+                  state={revealed[section.id] ?? null}
+                  canReveal={canReveal}
+                  busy={!!revealing[section.id]}
+                  error={revealErrors[section.id]}
+                  onReveal={() => reveal(section.id)}
+                />
+              ) : undefined,
+              render:
+                q.kind === "rating"
+                  ? (val, onChange) => (
+                      <RatingInput
+                        value={val as number | null}
+                        onChange={onChange as (v: number) => void}
+                        labels={q.labels}
+                        prompts={q.prompts?.manager}
+                      />
+                    )
+                  : (val, onChange) => (
+                      <TextInput
+                        value={val as string}
+                        onChange={onChange as (v: string) => void}
+                        placeholder={withName(q.placeholders?.manager, employeeName)}
+                      />
+                    ),
+            };
+          }),
+        footer:
+          section.id === "ahead" && cycleId && session?.user?.id ? (
+            <GoalUpdatesEditor employeeId={employeeId} cycleId={cycleId} authorId={session.user.id} />
+          ) : undefined,
+      };
+    });
+  }, [employeeName, values, revealed, revealing, revealErrors, reveal, cycleId, employeeId, session?.user?.id]);
 
   if (!cycleId) {
     return (
@@ -171,17 +192,23 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
     );
   }
 
+  if (!loaded) {
+    return <div className="text-center py-12 text-gray-500">Loading...</div>;
+  }
+
   return (
     <div className="py-4">
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-visory-navy">Manager Assessment</h1>
-          {employeeName && <p className="text-sm text-gray-600 mt-1">Assessing: {employeeName}</p>}
-        </div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-visory-navy">Manager Assessment</h1>
+        {employeeName && <p className="text-sm text-gray-600 mt-1">Assessing: {employeeName}</p>}
+        {isSubmitted && (
+          <p className="text-xs text-gray-500 mt-1">
+            Submitted. Ratings are locked; you can still reveal each section and add your responses.
+          </p>
+        )}
       </div>
-      <GoalsPanel employeeId={employeeId} />
-      <StepForm
-        steps={steps}
+      <AssessmentForm
+        sections={sections}
         values={values}
         onChange={(key, val) => setValues((v) => ({ ...v, [key]: val }))}
         onSave={() => save(false)}
@@ -189,7 +216,13 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         saving={saving}
         submitting={submitting}
         isSubmitted={isSubmitted}
+        editableWhenSubmitted={[...MANAGER_RESPONSE_FIELDS]}
         error={error}
+        header={
+          <div className="mb-6">
+            <GoalsMetricsCard employeeId={employeeId} cycleId={cycleId} canEdit variant="form" />
+          </div>
+        }
       />
     </div>
   );

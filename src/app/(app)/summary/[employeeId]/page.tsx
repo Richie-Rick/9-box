@@ -6,7 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getGrowthReadinessLabel, formatCyclePeriod } from "@/lib/utils";
+import { formatCyclePeriod } from "@/lib/utils";
+import { buildComparisonRows } from "@/lib/comparison";
+import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
 import {
   getBox1Label,
   getBox2Label,
@@ -21,44 +23,33 @@ import { DimensionComparison } from "@/components/assessments/dimension-comparis
 interface SummaryData {
   employee: { id: string; name: string; email: string; jobTitle: string | null; team: string | null; role: string };
   cycle: { id: string; month: number; year: number; status: string } | null;
-  selfAssessment: {
-    performance: number | null;
-    performanceJustification: string | null;
-    achievements: string | null;
-    blockers: string | null;
-    learning: string | null;
-    valCustomerFirst: number | null;
-    valStepIntoArena: number | null;
-    valFlockToProblems: number | null;
-    valGiveEnergy: number | null;
-    valuesReflection: string | null;
-    engagement: number | null;
-    engagementDriver: string | null;
-    supportNeeded: string | null;
-    goalsNextMonth: string | null;
-    submittedAt: string | null;
-  } | null;
-  managerAssessment: {
-    id: string;
-    performance: number | null;
-    performanceEvidence: string | null;
-    growthReadiness: number | null;
-    growthReadinessEvidence: string | null;
-    valCustomerFirst: number | null;
-    valStepIntoArena: number | null;
-    valFlockToProblems: number | null;
-    valGiveEnergy: number | null;
-    valuesEvidence: string | null;
-    engagement: number | null;
-    engagementEvidence: string | null;
-    notes: string | null;
-    submittedAt: string | null;
-    resultsSentAt: string | null;
-    oneOnOneComplete: boolean;
-    oneOnOneNotes: string | null;
-    oneOnOneCompletedAt: string | null;
-    manager: { id: string; name: string };
-  } | null;
+  selfAssessment: SelfView | null;
+  managerAssessment: ManagerView | null;
+}
+
+interface SelfView {
+  [key: string]: unknown;
+  performance: number | null;
+  submittedAt: string | null;
+}
+
+interface ManagerView {
+  [key: string]: unknown;
+  id: string;
+  performance: number | null;
+  growthReadiness: number | null;
+  valCustomerFirst: number | null;
+  valStepIntoArena: number | null;
+  valFlockToProblems: number | null;
+  valGiveEnergy: number | null;
+  engagement: number | null;
+  initialRatings: Record<string, number> | null;
+  submittedAt: string | null;
+  resultsSentAt: string | null;
+  oneOnOneComplete: boolean;
+  oneOnOneNotes: string | null;
+  oneOnOneCompletedAt: string | null;
+  manager: { id: string; name: string };
 }
 
 export default function SummaryPage({ params }: { params: Promise<{ employeeId: string }> }) {
@@ -148,81 +139,8 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
   const box1Label = mgr?.performance && mgr?.growthReadiness ? getBox1Label(mgr.performance, mgr.growthReadiness) : null;
   const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
 
-  const comparisonSections = [
-    {
-      id: "performance",
-      label: "Performance",
-      selfRating: self?.performance ?? null,
-      managerRating: mgr?.performance ?? null,
-      selfText: [
-        { label: "Justification", value: self?.performanceJustification ?? null },
-        { label: "Achievements", value: self?.achievements ?? null },
-        { label: "Blockers", value: self?.blockers ?? null },
-      ],
-      managerText: [
-        { label: "Evidence", value: mgr?.performanceEvidence ?? null },
-      ],
-    },
-    {
-      id: "growthReadiness",
-      label: "Growth Readiness",
-      selfRating: null,
-      managerRating: mgr?.growthReadiness ?? null,
-      labelFn: getGrowthReadinessLabel,
-      managerText: [
-        { label: "Evidence", value: mgr?.growthReadinessEvidence ?? null },
-      ],
-    },
-    {
-      id: "valCustomerFirst",
-      label: "Customer First",
-      selfRating: self?.valCustomerFirst ?? null,
-      managerRating: mgr?.valCustomerFirst ?? null,
-    },
-    {
-      id: "valStepIntoArena",
-      label: "Step Into the Arena",
-      selfRating: self?.valStepIntoArena ?? null,
-      managerRating: mgr?.valStepIntoArena ?? null,
-    },
-    {
-      id: "valFlockToProblems",
-      label: "Flock to Problems",
-      selfRating: self?.valFlockToProblems ?? null,
-      managerRating: mgr?.valFlockToProblems ?? null,
-    },
-    {
-      id: "valGiveEnergy",
-      label: "Give Energy",
-      selfRating: self?.valGiveEnergy ?? null,
-      managerRating: mgr?.valGiveEnergy ?? null,
-    },
-    {
-      id: "values",
-      label: "Values Reflection",
-      selfRating: null,
-      managerRating: null,
-      selfText: [
-        { label: "Reflection", value: self?.valuesReflection ?? null },
-      ],
-      managerText: [
-        { label: "Evidence", value: mgr?.valuesEvidence ?? null },
-      ],
-    },
-    {
-      id: "engagement",
-      label: "Engagement",
-      selfRating: self?.engagement ?? null,
-      managerRating: mgr?.engagement ?? null,
-      selfText: [
-        { label: "Driver", value: self?.engagementDriver ?? null },
-        { label: "Support Needed", value: self?.supportNeeded ?? null },
-      ],
-      managerText: [
-        { label: "Evidence", value: mgr?.engagementEvidence ?? null },
-      ],
-    },
-  ];
+  const comparisonRows = buildComparisonRows(self, mgr, { initialRatings: mgr?.initialRatings ?? null });
+  const isLeadership = session?.user?.role === "LEADERSHIP" || session?.user?.role === "ADMIN";
 
   return (
     <div className="space-y-6">
@@ -296,6 +214,17 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
         </div>
       )}
 
+      {/* Goals and metrics with this cycle's progress updates */}
+      {cycle && (
+        <GoalsMetricsCard
+          employeeId={employee.id}
+          cycleId={cycle.id}
+          variant="compact"
+          canEdit={isManagerView || isLeadership}
+          title="Goals & Key Metrics"
+        />
+      )}
+
       {/* Side-by-side Comparison */}
       <Card>
         <CardHeader>
@@ -303,45 +232,9 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
           <p className="text-xs text-gray-500">Click a dimension to expand and compare notes</p>
         </CardHeader>
         <CardContent>
-          <DimensionComparison sections={comparisonSections} />
+          <DimensionComparison rows={comparisonRows} />
         </CardContent>
       </Card>
-
-      {/* Additional Self-Assessment Context */}
-      {self?.submittedAt && (self.learning || self.goalsNextMonth) && (
-        <Card>
-          <CardHeader>
-            <h2 className="text-lg font-semibold">Additional Context</h2>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {self.learning && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase mb-1">Learning</p>
-                <p className="text-sm text-visory-navy">{self.learning}</p>
-              </div>
-            )}
-            {self.goalsNextMonth && (
-              <div>
-                <p className="text-xs font-medium text-gray-500 uppercase mb-1">Goals for Next Month</p>
-                <p className="text-sm text-visory-navy">{self.goalsNextMonth}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Manager Additional Notes */}
-      {mgr?.submittedAt && mgr.notes && (
-        <Card>
-          <CardHeader>
-            <h2 className="text-lg font-semibold">Manager Notes</h2>
-            <p className="text-xs text-gray-500">Assessed by {mgr.manager.name}</p>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-visory-navy">{mgr.notes}</p>
-          </CardContent>
-        </Card>
-      )}
 
       {/* 1:1 Meeting Notes (manager-only) */}
       {isManagerView && mgr?.submittedAt && (

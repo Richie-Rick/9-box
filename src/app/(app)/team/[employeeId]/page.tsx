@@ -8,7 +8,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getRatingLabel, getRatingColor, getGrowthReadinessLabel, formatCyclePeriod, getRoleDisplayName } from "@/lib/utils";
 import { getValuesAlignment } from "@/lib/nine-box";
-import { isManager as checkIsManager } from "@/lib/permissions";
 
 interface EmployeeProfile {
   id: string;
@@ -19,7 +18,7 @@ interface EmployeeProfile {
   role: string;
   isActive: boolean;
   createdAt: string;
-  manager: { id: true; name: string } | null;
+  manager: { id: string; name: string } | null;
 }
 
 interface AssessmentHistory {
@@ -80,7 +79,8 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
   const [editingNotes, setEditingNotes] = useState<string | null>(null);
   const [editNotesValue, setEditNotesValue] = useState("");
 
-  const canEdit = session?.user?.role && checkIsManager(session.user.role as "MANAGER" | "AREA_LEAD" | "LEADERSHIP" | "ADMIN" | "EMPLOYEE");
+  const role = session?.user?.role;
+  const isLeadership = role === "LEADERSHIP" || role === "ADMIN";
 
   useEffect(() => {
     async function loadData() {
@@ -202,8 +202,11 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
   if (error) return <div className="text-center py-12 text-red-500">{error}</div>;
   if (!employee) return <div className="text-center py-12 text-gray-500">Employee not found.</div>;
 
+  // Only the direct manager (or leadership) can set goals and metrics
+  const canEdit = isLeadership || (!!session?.user?.id && employee.manager?.id === session.user.id);
+  const proposedGoals = goals.filter((g) => g.status === "PROPOSED");
   const activeGoals = goals.filter((g) => g.status === "ACTIVE");
-  const completedGoals = goals.filter((g) => g.status !== "ACTIVE");
+  const completedGoals = goals.filter((g) => g.status === "COMPLETED" || g.status === "CANCELLED");
 
   return (
     <div className="space-y-6">
@@ -380,6 +383,26 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setShowGoalForm(false)}>Cancel</Button>
               </div>
+            </div>
+          )}
+
+          {proposedGoals.length > 0 && (
+            <div className="space-y-2 mb-4">
+              <p className="text-xs font-medium text-gray-500 uppercase">Proposed by {employee.name.split(" ")[0]}</p>
+              {proposedGoals.map((goal) => (
+                <div key={goal.id} className="rounded-lg border border-dashed border-gray-300 p-3 flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-visory-navy">{goal.title}</p>
+                    {goal.description && <p className="text-sm text-gray-600 mt-0.5">{goal.description}</p>}
+                  </div>
+                  {canEdit && (
+                    <div className="flex gap-1 shrink-0">
+                      <Button size="sm" onClick={() => handleGoalStatus(goal.id, "ACTIVE")}>Accept</Button>
+                      <Button size="sm" variant="ghost" onClick={() => handleGoalStatus(goal.id, "CANCELLED")}>Decline</Button>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 

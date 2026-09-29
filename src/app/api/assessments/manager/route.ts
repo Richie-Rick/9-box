@@ -8,6 +8,7 @@ import {
   MANAGER_RATING_FIELDS,
   MANAGER_TEXT_FIELDS,
   MANAGER_REQUIRED_FIELDS,
+  MANAGER_RESPONSE_FIELDS,
 } from "@/lib/assessment-fields";
 
 export async function GET(request: Request) {
@@ -93,7 +94,15 @@ export async function POST(request: Request) {
   const existing = await prisma.managerAssessment.findUnique({ where: uniqueWhere });
 
   if (existing?.submittedAt) {
-    return NextResponse.json({ error: "Submitted assessments are locked" }, { status: 409 });
+    // After submission only the responses to the self-review may change
+    const changed = Object.keys(data).filter((key) => {
+      const before = (existing as unknown as Record<string, unknown>)[key] ?? null;
+      return before !== data[key];
+    });
+    const locked = changed.filter((key) => !MANAGER_RESPONSE_FIELDS.includes(key));
+    if (locked.length > 0 || submit) {
+      return NextResponse.json({ error: "Submitted assessments are locked" }, { status: 409 });
+    }
   }
 
   const writeData: Record<string, unknown> = { ...data };

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isManager } from "@/lib/permissions";
+import { isManager, canAccessEmployee, canManageEmployee } from "@/lib/permissions";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -16,8 +16,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "employeeId is required" }, { status: 400 });
   }
 
-  const isOwn = employeeId === session.user.id;
-  if (!isOwn && !isManager(session.user.role)) {
+  if (!(await canAccessEmployee(session.user.id, session.user.role, employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -35,14 +34,14 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!isManager(session.user.role)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
-
   const { employeeId, name, target, unit, notes } = await request.json();
 
   if (!employeeId || !name || !target) {
     return NextResponse.json({ error: "employeeId, name, and target are required" }, { status: 400 });
+  }
+
+  if (!(await canManageEmployee(session.user.id, session.user.role, employeeId))) {
+    return NextResponse.json({ error: "Only the employee's manager can set metrics" }, { status: 403 });
   }
 
   const metric = await prisma.keyMetric.create({

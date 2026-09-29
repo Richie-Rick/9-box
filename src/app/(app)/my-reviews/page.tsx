@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getGrowthReadinessLabel, formatCyclePeriod } from "@/lib/utils";
+import { formatCyclePeriod } from "@/lib/utils";
+import { buildComparisonRows } from "@/lib/comparison";
 import {
   getBox1Label,
   getBox2Label,
@@ -17,36 +18,20 @@ import {
 import { DimensionComparison } from "@/components/assessments/dimension-comparison";
 
 interface SelfAssessmentData {
+  [key: string]: unknown;
   performance: number | null;
-  performanceJustification: string | null;
-  achievements: string | null;
-  blockers: string | null;
-  learning: string | null;
-  valCustomerFirst: number | null;
-  valStepIntoArena: number | null;
-  valFlockToProblems: number | null;
-  valGiveEnergy: number | null;
-  valuesReflection: string | null;
-  engagement: number | null;
-  engagementDriver: string | null;
-  supportNeeded: string | null;
-  goalsNextMonth: string | null;
   submittedAt: string | null;
 }
 
 interface ManagerAssessmentData {
+  [key: string]: unknown;
   performance: number | null;
-  performanceEvidence: string | null;
   growthReadiness: number | null;
-  growthReadinessEvidence: string | null;
   valCustomerFirst: number | null;
   valStepIntoArena: number | null;
   valFlockToProblems: number | null;
   valGiveEnergy: number | null;
-  valuesEvidence: string | null;
   engagement: number | null;
-  engagementEvidence: string | null;
-  notes: string | null;
   submittedAt: string | null;
   resultsSentAt: string | null;
   manager: { id: string; name: string };
@@ -207,81 +192,7 @@ export default function MyResultsPage() {
 
         const showManager = !!mgr?.resultsSentAt;
 
-        const sections = [
-          {
-            id: "performance",
-            label: "Performance",
-            selfRating: self?.performance ?? null,
-            managerRating: showManager ? (mgr?.performance ?? null) : null,
-            selfText: [
-              { label: "Justification", value: self?.performanceJustification ?? null },
-              { label: "Achievements", value: self?.achievements ?? null },
-              { label: "Blockers", value: self?.blockers ?? null },
-            ],
-            managerText: showManager ? [
-              { label: "Evidence", value: mgr?.performanceEvidence ?? null },
-            ] : undefined,
-          },
-          ...(showManager ? [{
-            id: "growthReadiness",
-            label: "Growth Readiness",
-            selfRating: null,
-            managerRating: mgr?.growthReadiness ?? null,
-            labelFn: getGrowthReadinessLabel,
-            managerText: [
-              { label: "Evidence", value: mgr?.growthReadinessEvidence ?? null },
-            ],
-          }] : []),
-          {
-            id: "valCustomerFirst",
-            label: "Customer First",
-            selfRating: self?.valCustomerFirst ?? null,
-            managerRating: showManager ? (mgr?.valCustomerFirst ?? null) : null,
-          },
-          {
-            id: "valStepIntoArena",
-            label: "Step Into the Arena",
-            selfRating: self?.valStepIntoArena ?? null,
-            managerRating: showManager ? (mgr?.valStepIntoArena ?? null) : null,
-          },
-          {
-            id: "valFlockToProblems",
-            label: "Flock to Problems",
-            selfRating: self?.valFlockToProblems ?? null,
-            managerRating: showManager ? (mgr?.valFlockToProblems ?? null) : null,
-          },
-          {
-            id: "valGiveEnergy",
-            label: "Give Energy",
-            selfRating: self?.valGiveEnergy ?? null,
-            managerRating: showManager ? (mgr?.valGiveEnergy ?? null) : null,
-          },
-          {
-            id: "values",
-            label: "Values Reflection",
-            selfRating: null,
-            managerRating: null,
-            selfText: [
-              { label: "Reflection", value: self?.valuesReflection ?? null },
-            ],
-            managerText: showManager ? [
-              { label: "Evidence", value: mgr?.valuesEvidence ?? null },
-            ] : undefined,
-          },
-          {
-            id: "engagement",
-            label: "Engagement",
-            selfRating: self?.engagement ?? null,
-            managerRating: showManager ? (mgr?.engagement ?? null) : null,
-            selfText: [
-              { label: "Driver", value: self?.engagementDriver ?? null },
-              { label: "Support Needed", value: self?.supportNeeded ?? null },
-            ],
-            managerText: showManager ? [
-              { label: "Evidence", value: mgr?.engagementEvidence ?? null },
-            ] : undefined,
-          },
-        ];
+        const rows = buildComparisonRows(self, mgr, { showManager });
 
         return (
           <Card key={cycle.id}>
@@ -326,39 +237,10 @@ export default function MyResultsPage() {
                     {showManager ? "Assessment Comparison" : "Your Ratings"}
                   </h3>
                   <p className="text-xs text-gray-500 mb-2">Click a dimension to expand and compare notes</p>
-                  <DimensionComparison sections={sections} showManagerColumn={showManager} />
+                  <DimensionComparison rows={rows} showManagerColumn={showManager} />
                 </div>
               )}
 
-              {self?.submittedAt && (self.learning || self.goalsNextMonth) && (
-                <div>
-                  <h3 className="text-sm font-semibold text-visory-navy uppercase mb-3">Additional Context</h3>
-                  <div className="space-y-3">
-                    {self.learning && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">Learning</p>
-                        <p className="text-sm text-visory-navy">{self.learning}</p>
-                      </div>
-                    )}
-                    {self.goalsNextMonth && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 uppercase mb-1">Goals for Next Month</p>
-                        <p className="text-sm text-visory-navy">{self.goalsNextMonth}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {showManager && mgr?.notes && (
-                <div>
-                  <h3 className="text-sm font-semibold text-visory-navy uppercase mb-3">
-                    Manager Notes
-                    <span className="text-xs font-normal text-gray-500 ml-2">by {mgr.manager.name}</span>
-                  </h3>
-                  <p className="text-sm text-visory-navy">{mgr.notes}</p>
-                </div>
-              )}
             </CardContent>
           </Card>
         );

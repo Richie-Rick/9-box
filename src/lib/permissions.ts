@@ -58,6 +58,48 @@ export async function getVisibleEmployeeIds(
 }
 
 /**
+ * Whether the viewer may see an employee's goals, metrics and profile.
+ * Own record, their direct manager, area leads over that manager, and leadership.
+ */
+export async function canAccessEmployee(
+  viewerId: string,
+  viewerRole: Role,
+  employeeId: string
+): Promise<boolean> {
+  if (viewerId === employeeId) return true;
+  if (canViewAllAssessments(viewerRole)) return true;
+  const employee = await prisma.user.findUnique({
+    where: { id: employeeId },
+    select: { managerId: true },
+  });
+  if (!employee) return false;
+  if (employee.managerId === viewerId) return true;
+  if (viewerRole === "AREA_LEAD") {
+    const visible = await getVisibleEmployeeIds(viewerId, viewerRole);
+    return visible === "all" || visible.includes(employeeId);
+  }
+  return false;
+}
+
+/**
+ * Whether the viewer may set goals and metrics for an employee:
+ * their direct manager or leadership.
+ */
+export async function canManageEmployee(
+  viewerId: string,
+  viewerRole: Role,
+  employeeId: string
+): Promise<boolean> {
+  if (canViewAllAssessments(viewerRole)) return true;
+  if (!isManager(viewerRole)) return false;
+  const employee = await prisma.user.findUnique({
+    where: { id: employeeId },
+    select: { managerId: true },
+  });
+  return employee?.managerId === viewerId;
+}
+
+/**
  * Returns Prisma where filter for manager assessments based on role.
  */
 export async function getManagerAssessmentFilter(

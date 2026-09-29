@@ -26,9 +26,16 @@ enum TrendDirection {
 }
 
 enum GoalStatus {
+  PROPOSED
   ACTIVE
   COMPLETED
   CANCELLED
+}
+
+enum GoalUpdateStatus {
+  ON_TRACK
+  OFF_TRACK
+  DONE
 }
 
 model User {
@@ -52,6 +59,8 @@ model User {
   resources                  Resource[]
   goals                      Goal[]             @relation("EmployeeGoals")
   goalsCreated               Goal[]             @relation("GoalCreator")
+  goalsProposed              Goal[]             @relation("GoalProposer")
+  goalUpdates                GoalUpdate[]
   keyMetrics                 KeyMetric[]        @relation("EmployeeKeyMetrics")
   keyMetricsCreated          KeyMetric[]        @relation("KeyMetricCreator")
 
@@ -84,6 +93,7 @@ model AssessmentCycle {
 
   managerAssessments ManagerAssessment[]
   selfAssessments    SelfAssessment[]
+  goalUpdates        GoalUpdate[]
 
   @@unique([month, year])
 }
@@ -107,6 +117,14 @@ model ManagerAssessment {
   valuesEvidence      String?
   engagement          Int?
   engagementEvidence  String?
+  achievementsObserved String?
+  blockersToRemove    String?
+  supportCommitted    String?
+  responsePerformance String?
+  responseGrowth      String?
+  responseValues      String?
+  responseEngagement  String?
+  initialRatings      Json?
   trend               TrendDirection?
   notes               String?
   submittedAt         DateTime?
@@ -134,6 +152,8 @@ model SelfAssessment {
   achievements             String?
   blockers                 String?
   learning                 String?
+  growthReadiness          Int?
+  growthReflection         String?
   valCustomerFirst         Int?
   valStepIntoArena         Int?
   valFlockToProblems       Int?
@@ -175,6 +195,8 @@ model Goal {
   employee    User       @relation("EmployeeGoals", fields: [employeeId], references: [id], onDelete: Cascade)
   createdById String
   createdBy   User       @relation("GoalCreator", fields: [createdById], references: [id])
+  proposedById String?
+  proposedBy  User?      @relation("GoalProposer", fields: [proposedById], references: [id])
   title       String
   description String?
   dueDate     DateTime?
@@ -182,8 +204,27 @@ model Goal {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
+  updates     GoalUpdate[]
+
   @@index([employeeId])
   @@index([createdById])
+}
+
+model GoalUpdate {
+  id        String           @id @default(cuid())
+  goalId    String
+  goal      Goal             @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  cycleId   String
+  cycle     AssessmentCycle  @relation(fields: [cycleId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User             @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  status    GoalUpdateStatus
+  note      String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@unique([goalId, cycleId, authorId])
+  @@index([cycleId])
 }
 
 model KeyMetric {

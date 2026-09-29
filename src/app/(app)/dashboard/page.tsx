@@ -7,6 +7,7 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { GoalsMetricsCard } from "@/components/goals/goals-metrics-card";
 import type { CycleData, TeamMemberStatus, ManagerAssessmentData } from "@/types";
 import { formatCyclePeriod } from "@/lib/utils";
 import {
@@ -118,6 +119,17 @@ function EmployeeDashboard() {
         <h1 className="text-2xl font-bold text-visory-navy">My Dashboard</h1>
         <p className="text-sm text-gray-600 mt-1">Your performance cycle status</p>
       </div>
+
+      {/* Goals and metrics, always visible */}
+      {session?.user?.id && (
+        <GoalsMetricsCard
+          employeeId={session.user.id}
+          cycleId={openCycle?.id ?? null}
+          variant="dashboard"
+          isSelf
+          title="My Goals & Key Metrics"
+        />
+      )}
 
       {/* Summary Card - averages & latest */}
       {latestWithResults && (
