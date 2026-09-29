@@ -8,6 +8,7 @@ export interface StepConfig {
   id: string;
   title: string;
   description?: string;
+  required?: boolean;
   render: (
     value: unknown,
     onChange: (val: unknown) => void
@@ -23,6 +24,11 @@ interface StepFormProps {
   saving?: boolean;
   submitting?: boolean;
   isSubmitted?: boolean;
+  error?: string | null;
+}
+
+function isEmpty(value: unknown): boolean {
+  return value === null || value === undefined || value === "";
 }
 
 export function StepForm({
@@ -34,11 +40,17 @@ export function StepForm({
   saving,
   submitting,
   isSubmitted,
+  error,
 }: StepFormProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const step = steps[currentStep];
   const isLast = currentStep === steps.length - 1;
   const isFirst = currentStep === 0;
+
+  const missing = steps
+    .map((s, index) => ({ ...s, index }))
+    .filter((s) => s.required && isEmpty(values[s.id]));
+  const canSubmit = missing.length === 0 && !submitting && !isSubmitted;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -58,7 +70,10 @@ export function StepForm({
 
       {/* Step content */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 sm:p-8 min-h-[300px]">
-        <h2 className="text-xl font-semibold text-visory-navy mb-1">{step.title}</h2>
+        <h2 className="text-xl font-semibold text-visory-navy mb-1">
+          {step.title}
+          {step.required && <span className="text-visory ml-1" title="Required">*</span>}
+        </h2>
         {step.description && (
           <p className="text-sm text-gray-500 mb-6">{step.description}</p>
         )}
@@ -66,6 +81,33 @@ export function StepForm({
           {step.render(values[step.id], (val) => onChange(step.id, val))}
         </div>
       </div>
+
+      {error && (
+        <div className="mt-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700" role="alert">
+          {error}
+        </div>
+      )}
+
+      {isLast && missing.length > 0 && !isSubmitted && (
+        <div className="mt-4 rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-800">
+          <p className="font-medium mb-1">
+            {missing.length} rating{missing.length === 1 ? "" : "s"} still needed before you can submit:
+          </p>
+          <ul className="flex flex-wrap gap-2">
+            {missing.map((m) => (
+              <li key={m.id}>
+                <button
+                  type="button"
+                  onClick={() => setCurrentStep(m.index)}
+                  className="underline underline-offset-2 hover:text-amber-900"
+                >
+                  {m.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Navigation */}
       <div className="flex items-center justify-between mt-6">
@@ -81,7 +123,7 @@ export function StepForm({
             {saving ? "Saving..." : "Save Draft"}
           </Button>
           {isLast ? (
-            <Button onClick={onSubmit} disabled={submitting || isSubmitted}>
+            <Button onClick={onSubmit} disabled={!canSubmit}>
               {isSubmitted ? "Submitted" : submitting ? "Submitting..." : "Submit"}
             </Button>
           ) : (

@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import {
+  sanitizeAssessmentInput,
+  SELF_RATING_FIELDS,
+  SELF_TEXT_FIELDS,
+} from "@/lib/assessment-fields";
 
 export async function GET(
   _request: Request,
@@ -22,7 +27,6 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Only the employee themselves, their manager, or leadership/admin can view
   if (assessment.employeeId !== session.user.id) {
     const employee = await prisma.user.findUnique({
       where: { id: assessment.employeeId },
@@ -50,16 +54,29 @@ export async function PUT(
 
   const { id } = await params;
 
-  const existing = await prisma.selfAssessment.findUnique({ where: { id } });
+  const existing = await prisma.selfAssessment.findUnique({
+    where: { id },
+    include: { cycle: true },
+  });
   if (!existing || existing.employeeId !== session.user.id) {
     return NextResponse.json({ error: "Not found or not yours" }, { status: 404 });
   }
+  if (existing.cycle.status !== "OPEN") {
+    return NextResponse.json({ error: "This cycle is closed. Ask your admin to reopen it." }, { status: 400 });
+  }
+  if (existing.submittedAt) {
+    return NextResponse.json({ error: "Submitted assessments are locked" }, { status: 409 });
+  }
 
-  const body = await request.json();
+  const body = (await request.json()) as Record<string, unknown>;
+  const { data, errors } = sanitizeAssessmentInput(body, SELF_RATING_FIELDS, SELF_TEXT_FIELDS);
+  if (errors.length > 0) {
+    return NextResponse.json({ error: errors.join(". ") }, { status: 400 });
+  }
 
   const assessment = await prisma.selfAssessment.update({
     where: { id },
-    data: body,
+    data,
   });
 
   return NextResponse.json(assessment);

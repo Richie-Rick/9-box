@@ -51,10 +51,23 @@ export async function GET(request: Request) {
   }
 
   const isRequesterManager = managerAssessment?.managerId === session.user.id;
-  const mgrData = managerAssessment ? {
-    ...managerAssessment,
-    oneOnOneNotes: isRequesterManager ? managerAssessment.oneOnOneNotes : null,
-  } : null;
+  let mgrData: Record<string, unknown> | null = null;
+  if (managerAssessment) {
+    if (isOwnRecord && !isLeadershipOrAdmin && !managerAssessment.resultsSentAt) {
+      // The employee only learns the status until results are shared
+      mgrData = {
+        id: managerAssessment.id,
+        submittedAt: null,
+        resultsSentAt: null,
+        manager: managerAssessment.manager,
+      };
+    } else {
+      mgrData = {
+        ...managerAssessment,
+        oneOnOneNotes: isRequesterManager ? managerAssessment.oneOnOneNotes : null,
+      };
+    }
+  }
 
   return NextResponse.json({
     employee,

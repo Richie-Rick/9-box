@@ -17,6 +17,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [employeeName, setEmployeeName] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!cycleId) return;
@@ -48,13 +49,11 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
 
   const save = useCallback(async (submit = false) => {
     if (!cycleId) return;
-    const body = { cycleId, employeeId, ...values };
-    if (submit) {
-      (body as Record<string, unknown>).submittedAt = new Date().toISOString();
-    }
+    const body = { cycleId, employeeId, ...values, submit };
 
     if (submit) setSubmitting(true);
     else setSaving(true);
+    setError(null);
 
     try {
       const res = await fetch("/api/assessments/manager", {
@@ -63,6 +62,10 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         body: JSON.stringify(body),
       });
       const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Could not save. Please try again.");
+        return;
+      }
       setAssessmentId(data.id);
       if (submit) {
         setIsSubmitted(true);
@@ -70,6 +73,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
           router.push(`/summary/${employeeId}?cycleId=${cycleId}`);
         }
       }
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
     } finally {
       setSaving(false);
       setSubmitting(false);
@@ -79,6 +84,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const steps: StepConfig[] = [
     {
       id: "performance",
+      required: true,
       title: `Performance Rating${employeeName ? ` for ${employeeName}` : ""}`,
       description: "Rate this employee's performance against objectives.",
       render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.performance?.manager} />,
@@ -91,6 +97,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
     },
     {
       id: "growthReadiness",
+      required: true,
       title: "Growth Readiness Rating",
       description: "Rate this employee's readiness for growth and advancement.",
       render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} labels={{ 1: "Developing", 2: "Building", 3: "Ready Now" }} prompts={assessmentPrompts.growthReadiness?.manager} />,
@@ -103,24 +110,28 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
     },
     {
       id: "valCustomerFirst",
+      required: true,
       title: "Customer First",
       description: "How well does this employee embody 'Customer First'?",
       render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valCustomerFirst?.manager} />,
     },
     {
       id: "valStepIntoArena",
+      required: true,
       title: "Step Into the Arena",
       description: "How well does this employee take initiative and show courage?",
       render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valStepIntoArena?.manager} />,
     },
     {
       id: "valFlockToProblems",
+      required: true,
       title: "Flock to Problems",
       description: "How well does this employee seek out and address challenges?",
       render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valFlockToProblems?.manager} />,
     },
     {
       id: "valGiveEnergy",
+      required: true,
       title: "Give Energy",
       description: "How well does this employee energise and uplift the team?",
       render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.valGiveEnergy?.manager} />,
@@ -133,6 +144,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
     },
     {
       id: "engagement",
+      required: true,
       title: "Engagement Rating",
       description: "How engaged does this employee appear?",
       render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.engagement?.manager} />,
@@ -177,6 +189,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         saving={saving}
         submitting={submitting}
         isSubmitted={isSubmitted}
+        error={error}
       />
     </div>
   );

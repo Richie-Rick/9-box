@@ -96,10 +96,9 @@ function EmployeeDashboard() {
   if (loading) return <div className="text-center py-12 text-gray-500">Loading...</div>;
 
   const openCycle = cycles.find((c) => c.status === "OPEN");
-  const latestWithResults = cycleSummaries.find((s) => s.mgrSubmitted);
-
-  // Compute averages from cycles that have manager assessments
-  const completedCycles = cycleSummaries.filter((s) => s.mgrSubmitted);
+  // Only cycles whose results have been shared with the employee count
+  const latestWithResults = cycleSummaries.find((s) => s.resultsSent);
+  const completedCycles = cycleSummaries.filter((s) => s.resultsSent);
   const avgPerformance = completedCycles.length > 0
     ? completedCycles.reduce((sum, s) => sum + (s.mgrPerformance || 0), 0) / completedCycles.length
     : null;
@@ -165,11 +164,10 @@ function EmployeeDashboard() {
                 )}
               </div>
             </div>
-            {completedCycles.length > 1 && (
-              <p className="text-xs text-gray-400 mt-3 text-center">
-                Latest: {formatCyclePeriod(latestWithResults.month, latestWithResults.year)} · Averages across {completedCycles.length} cycles
-              </p>
-            )}
+            <p className="text-xs text-gray-500 mt-3 text-center">
+              Showing {formatCyclePeriod(latestWithResults.month, latestWithResults.year)}
+              {completedCycles.length > 1 && ` · Averages across ${completedCycles.length} cycles`}
+            </p>
           </CardContent>
         </Card>
       )}
@@ -206,15 +204,15 @@ function EmployeeDashboard() {
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">Manager Assessment</span>
+                  <span className="text-sm text-gray-600">Manager Review</span>
                   <Badge
                     className={
-                      summary.mgrSubmitted
+                      summary.resultsSent
                         ? "bg-green-100 text-green-800 border-green-300"
                         : "bg-gray-100 text-gray-800 border-gray-300"
                     }
                   >
-                    {summary.mgrSubmitted ? "Submitted" : "Pending"}
+                    {summary.resultsSent ? "Shared" : "Not yet shared"}
                   </Badge>
                 </div>
                 <div className="flex gap-2">
@@ -223,7 +221,7 @@ function EmployeeDashboard() {
                       {summary.selfPerformance !== null ? "Continue Self-Assessment" : "Start Self-Assessment"}
                     </Button>
                   )}
-                  {(summary.selfSubmitted || summary.mgrSubmitted) && (
+                  {(summary.selfSubmitted || summary.resultsSent) && (
                     <Button variant="secondary" onClick={() => router.push("/my-reviews")}>
                       View Results
                     </Button>
@@ -301,6 +299,7 @@ function ManagerDashboard() {
   const { data: session } = useSession();
   const router = useRouter();
   const role = session?.user?.role;
+  const [cycles, setCycles] = useState<CycleData[]>([]);
   const [cycle, setCycle] = useState<CycleData | null>(null);
   const [team, setTeam] = useState<TeamMemberStatus[]>([]);
   const [assessments, setAssessments] = useState<ManagerAssessmentData[]>([]);
@@ -313,19 +312,23 @@ function ManagerDashboard() {
   useEffect(() => {
     fetch("/api/cycles")
       .then((r) => r.json())
-      .then((cycles: CycleData[]) => {
-        const recent = cycles[0];
-        if (recent) {
-          setCycle(recent);
-          fetch(`/api/team?cycleId=${recent.id}`)
-            .then((r) => r.json())
-            .then(setTeam);
-          fetch(`/api/assessments/manager?cycleId=${recent.id}`)
-            .then((r) => r.json())
-            .then(setAssessments);
-        }
+      .then((data: CycleData[]) => {
+        setCycles(data);
+        // Default to the open cycle so Assess never lands on a closed one
+        const initial = data.find((c) => c.status === "OPEN") ?? data[0] ?? null;
+        setCycle(initial);
       });
   }, []);
+
+  useEffect(() => {
+    if (!cycle) return;
+    fetch(`/api/team?cycleId=${cycle.id}`)
+      .then((r) => r.json())
+      .then((data) => setTeam(Array.isArray(data) ? data : []));
+    fetch(`/api/assessments/manager?cycleId=${cycle.id}`)
+      .then((r) => r.json())
+      .then((data) => setAssessments(Array.isArray(data) ? data : []));
+  }, [cycle]);
 
   const assessed = team.filter((t) => t.managerAssessmentStatus === "submitted").length;
   const selfDone = team.filter((t) => t.selfAssessmentStatus === "submitted").length;
@@ -395,15 +398,25 @@ function ManagerDashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-visory-navy">Dashboard</h1>
-        {cycle && (
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-sm text-gray-600">{formatCyclePeriod(cycle.month, cycle.year)}</p>
-            <Badge className={cycle.status === "OPEN" ? "bg-green-100 text-green-800 border-green-300" : "bg-gray-100 text-gray-800 border-gray-300"}>
-              {cycle.status === "OPEN" ? "Open" : "Closed"}
-            </Badge>
-          </div>
-        )}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <h1 className="text-2xl font-bold text-visory-navy">Dashboard</h1>
+          {cycles.length > 0 && cycle && (
+            <div className="flex items-center gap-2">
+              <select
+                value={cycle.id}
+                onChange={(e) => setCycle(cycles.find((c) => c.id === e.target.value) ?? null)}
+                className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-visory"
+              >
+                {cycles.map((c) => (
+                  <option key={c.id} value={c.id}>{formatCyclePeriod(c.month, c.year)}</option>
+                ))}
+              </select>
+              <Badge className={cycle.status === "OPEN" ? "bg-green-100 text-green-800 border-green-300" : "bg-gray-100 text-gray-800 border-gray-300"}>
+                {cycle.status === "OPEN" ? "Open" : "Closed"}
+              </Badge>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Admin quick links */}

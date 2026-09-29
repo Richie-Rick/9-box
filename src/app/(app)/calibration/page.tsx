@@ -109,14 +109,11 @@ export default function CalibrationPage() {
       .then(setAssessments);
 
     const idx = cycles.findIndex((c) => c.id === selectedCycleId);
-    if (idx >= 0 && idx < cycles.length - 1) {
-      const prevCycle = cycles[idx + 1];
-      fetch(`/api/assessments/manager?cycleId=${prevCycle.id}`)
-        .then((r) => r.json())
-        .then(setPrevAssessments);
-    } else {
-      setPrevAssessments([]);
-    }
+    const prevCycle = idx >= 0 && idx < cycles.length - 1 ? cycles[idx + 1] : null;
+    const prevRequest = prevCycle
+      ? fetch(`/api/assessments/manager?cycleId=${prevCycle.id}`).then((r) => r.json())
+      : Promise.resolve([]);
+    prevRequest.then(setPrevAssessments);
   }, [selectedCycleId, cycles, viewMode]);
 
   useEffect(() => {
