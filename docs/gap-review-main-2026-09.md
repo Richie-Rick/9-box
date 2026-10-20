@@ -1,5 +1,7 @@
 # Gap review against `main` (29 September 2026)
 
+> Status, 20 October 2026: the Vercel GitHub link was restored after it stopped receiving pushes between 18 August and 29 September. The repository remains at `Richie-Rick/9-box`; no transfer is needed. Decisions D1 to D5 are still open.
+
 This replaces the earlier review that was done against the stale `claude/9-box-assessment-app-HG8Sj` branch. Everything below was checked by reading `main` at commit `14e68bf`. File paths are under `src/`.
 
 **What `main` already has** (June to August work): quarterly cycles with computed close-out dates; a Kanban meeting pipeline (In Assessment, Ready to Meet, Meeting Scheduled, Meeting Complete, Review Complete) with drag, override and an Assess button on every card; a meeting page with notes and actions-as-tasks; tasks, PIPs, review notes, password reset; unlock-and-edit after submission with an audit log and leadership write path; goal progress and metric results per cycle, with the manager's Performance step gated until every metric has an actual; employees can set their own goals and metrics; a new UI shell and design system.
