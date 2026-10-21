@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { keyMetricId, cycleId, actual, note } = await request.json();
+  const { keyMetricId, cycleId, actual, note, achieved } = await request.json();
   if (!keyMetricId || !cycleId || actual === undefined || actual === null || `${actual}`.trim() === "") {
     return NextResponse.json(
       { error: "keyMetricId, cycleId and actual are required" },
@@ -30,6 +30,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Hit / missed is optional; anything but a boolean is "unsure".
+  const achievedFlag = typeof achieved === "boolean" ? achieved : null;
+
   const result = await prisma.metricResult.upsert({
     where: { keyMetricId_cycleId: { keyMetricId, cycleId } },
     create: {
@@ -37,11 +40,13 @@ export async function POST(request: Request) {
       cycleId,
       actual: `${actual}`.trim(),
       note: note?.trim() || null,
+      achieved: achievedFlag,
       createdById: session.user.id,
     },
     update: {
       actual: `${actual}`.trim(),
       note: note?.trim() || null,
+      achieved: achievedFlag,
       createdById: session.user.id,
     },
   });

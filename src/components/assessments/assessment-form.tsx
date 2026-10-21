@@ -29,6 +29,8 @@ export interface FormSection {
   blockNext?: boolean;
   /** Explains what's required when blocked. Shown as a banner on one page. */
   blockNextHint?: string;
+  /** A warning or hint shown above the section's questions in both layouts. */
+  notice?: React.ReactNode;
 }
 
 interface AssessmentFormProps {
@@ -213,6 +215,9 @@ export function AssessmentForm({
   function renderSectionBody(s: FormSection, compact: boolean) {
     return (
       <>
+        {s.notice && (
+          <div className="rounded-lg bg-paper-2 border border-amber/40 p-3 mb-4 text-sm text-ink-2">{s.notice}</div>
+        )}
         <div className="min-w-0 divide-y divide-line">
           {s.questions.map((q) => (
             <div key={q.id}>{renderQuestion(q, compact)}</div>
