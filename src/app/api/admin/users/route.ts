@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isAdmin } from "@/lib/permissions";
+import { ensureJobRole, syncTemplatesForUser } from "@/lib/job-roles";
 
 export async function GET() {
   const session = await auth();
@@ -24,6 +25,7 @@ export async function GET() {
       managerId: true,
       startDate: true,
       createdAt: true,
+      jobRoleId: true,
       manager: { select: { id: true, name: true } },
     },
     orderBy: { name: "asc" },
@@ -56,15 +58,25 @@ export async function PUT(request: Request) {
   if (role !== undefined) data.role = role;
   if (managerId !== undefined) data.managerId = managerId || null;
   if (isActive !== undefined) data.isActive = isActive;
-  if (jobTitle !== undefined) data.jobTitle = jobTitle || null;
+  if (jobTitle !== undefined) {
+    // The job title doubles as the job role; role-set templates follow it.
+    const jobRole = await ensureJobRole(jobTitle);
+    data.jobTitle = jobRole?.name ?? null;
+    data.jobRoleId = jobRole?.id ?? null;
+  }
   if (team !== undefined) data.team = team || null;
   if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
 
   const user = await prisma.user.update({
     where: { id: userId },
     data,
-    select: { id: true, email: true, name: true, jobTitle: true, team: true, role: true, isActive: true, managerId: true, startDate: true },
+    select: { id: true, email: true, name: true, jobTitle: true, jobRoleId: true, team: true, role: true, isActive: true, managerId: true, startDate: true },
   });
+
+  // A new role, team or reactivation can owe the person role-set goals and metrics.
+  if (jobTitle !== undefined || team !== undefined || isActive === true) {
+    await syncTemplatesForUser(userId);
+  }
 
   return NextResponse.json(user);
 }

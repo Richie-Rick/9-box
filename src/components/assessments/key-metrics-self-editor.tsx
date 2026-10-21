@@ -9,6 +9,7 @@ interface MetricData {
   name: string;
   target: string;
   unit: string | null;
+  templateId?: string | null;
   createdBy?: { id: string; name: string } | null;
 }
 
@@ -74,15 +75,19 @@ export function KeyMetricsSelfEditor({ employeeId }: { employeeId: string }) {
       {!loading && metrics.length > 0 && (
         <div className="space-y-2">
           {metrics.map((m) => {
-            const byEmployee = m.createdBy ? m.createdBy.id === employeeId : true;
+            const byEmployee = !m.templateId && (m.createdBy ? m.createdBy.id === employeeId : true);
             return (
               <div key={m.id} className="flex items-start justify-between rounded-lg border border-line px-3 py-2">
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-ink">{m.name}</p>
-                    <Badge variant="slate" className="text-[11px]">
-                      {byEmployee ? "Set by employee" : "Set by manager"}
-                    </Badge>
+                    {m.templateId ? (
+                      <Badge variant="navy" className="text-[11px]">Role-set</Badge>
+                    ) : (
+                      <Badge variant="slate" className="text-[11px]">
+                        {byEmployee ? "Set by employee" : "Set by manager"}
+                      </Badge>
+                    )}
                   </div>
                   <p className="text-xs text-ink-3">
                     Target: <span className="mono tnum">{m.target}{m.unit ? ` ${m.unit}` : ""}</span>
