@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { comparePeriodDesc } from "@/lib/utils";
 import { logAudit, diffFields } from "@/lib/audit";
 import { SELF_ASSESSMENT_FIELDS, SELF_REQUIRED_FIELDS, pickFields, missingRequired } from "@/lib/assessment-fields";
+import { notifySelfSubmitted } from "@/lib/notifications";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -149,6 +150,12 @@ export async function POST(request: Request) {
         after,
       });
     }
+  }
+
+  // First submission: let the manager know (sent after the response).
+  if (assessment.submittedAt && !existing?.submittedAt) {
+    const id = assessment.id;
+    after(() => notifySelfSubmitted(id).catch((err) => console.error("self_submitted email failed", err)));
   }
 
   // Check if both assessments are now complete

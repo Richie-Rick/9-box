@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { logAudit } from "@/lib/audit";
+import { notifyReviewShared } from "@/lib/notifications";
 
 /**
  * Shares the manager's submitted assessment with the employee ahead of the
@@ -48,6 +49,8 @@ export async function POST(request: Request) {
     entityId: assessmentId,
     summary: "Shared review with employee ahead of the 1:1",
   });
+
+  after(() => notifyReviewShared(updated.id).catch((err) => console.error("review_shared email failed", err)));
 
   return NextResponse.json({ sharedAt: updated.sharedAt });
 }

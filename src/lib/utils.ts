@@ -78,6 +78,37 @@ export function getCycleDueDates(period: CyclePeriod): CycleDueDates {
   };
 }
 
+/** The stored milestone dates a cycle may carry (admin-chosen at creation). */
+export interface CycleMilestones {
+  readyToMeetDueAt?: Date | string | null;
+  meetingDueAt?: Date | string | null;
+  resultsDueAt?: Date | string | null;
+}
+
+/**
+ * A cycle's due dates: the admin-chosen dates where set, otherwise the
+ * computed defaults for the period. Use this (not getCycleDueDates) wherever
+ * a real cycle is at hand.
+ */
+export function cycleDueDates(cycle: CyclePeriod & CycleMilestones): CycleDueDates {
+  const defaults = getCycleDueDates(cycle);
+  const pick = (stored: Date | string | null | undefined, fallback: Date) =>
+    stored ? new Date(stored) : fallback;
+  return {
+    readyToMeet: pick(cycle.readyToMeetDueAt, defaults.readyToMeet),
+    meetingComplete: pick(cycle.meetingDueAt, defaults.meetingComplete),
+    resultsSent: pick(cycle.resultsDueAt, defaults.resultsSent),
+  };
+}
+
+/** yyyy-mm-dd in local time, for <input type="date">. */
+export function toDateInput(date: Date | string | null | undefined): string {
+  if (!date) return "";
+  const d = new Date(date);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function formatDueDate(date: Date): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }

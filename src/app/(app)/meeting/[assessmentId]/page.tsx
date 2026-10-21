@@ -137,6 +137,27 @@ export default function MeetingPage({ params }: { params: Promise<{ assessmentId
                 Share review
               </Button>
             )}
+            {assessment.meetingStatus !== "MEETING_COMPLETE" && (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    const res = await fetch(`/api/assessments/manager/ics?assessmentId=${assessment.id}`);
+                    const data = await res.json().catch(() => ({}));
+                    if (data.googleUrl) window.open(data.googleUrl, "_blank", "noopener");
+                  }}
+                >
+                  Add to Google Calendar
+                </Button>
+                <a
+                  href={`/api/assessments/manager/ics?assessmentId=${assessment.id}&format=ics`}
+                  className="text-xs text-ink-2 underline underline-offset-2 hover:text-ink"
+                >
+                  .ics
+                </a>
+              </>
+            )}
             <Button variant="secondary" size="sm" onClick={() => window.print()}>
               Print
             </Button>
