@@ -170,6 +170,11 @@ model ManagerAssessment {
   valuesEvidence      String?
   engagement          Int?
   engagementEvidence  String?
+  // Manager-side counterparts to the employee's achievements, blockers and
+  // support needed, so every section reads as a conversation.
+  achievementsObserved String?
+  blockersToRemove     String?
+  supportCommitted     String?
   trend               TrendDirection?
   notes               String?
   submittedAt         DateTime?
@@ -196,6 +201,9 @@ model SelfAssessment {
   achievements             String?
   blockers                 String?
   learning                 String?
+  // Employee's own view of growth readiness, mirrored against the manager's.
+  growthReadiness          Int?
+  growthReflection         String?
   valCustomerFirst         Int?
   valStepIntoArena         Int?
   valFlockToProblems       Int?
@@ -435,7 +443,9 @@ model GoalUpdate {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
-  @@unique([goalId, cycleId])
+  // One update per author per cycle, so the employee and manager each keep
+  // their own view rather than overwriting each other.
+  @@unique([goalId, cycleId, createdById])
   @@index([goalId])
   @@index([cycleId])
 }

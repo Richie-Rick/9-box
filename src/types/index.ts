@@ -36,6 +36,9 @@ export interface ManagerAssessmentData {
   valuesEvidence: string | null;
   engagement: number | null;
   engagementEvidence: string | null;
+  achievementsObserved: string | null;
+  blockersToRemove: string | null;
+  supportCommitted: string | null;
   notes: string | null;
   submittedAt: string | null;
   meetingStatus?: MeetingStatus;
@@ -54,6 +57,8 @@ export interface SelfAssessmentData {
   achievements: string | null;
   blockers: string | null;
   learning: string | null;
+  growthReadiness: number | null;
+  growthReflection: string | null;
   valCustomerFirst: number | null;
   valStepIntoArena: number | null;
   valFlockToProblems: number | null;

@@ -1,21 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { ChevronDown, Target } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 type ProgressStatus = "ON_TRACK" | "OFF_TRACK" | "COMPLETE";
 
+interface Creator {
+  id: string;
+  name: string;
+}
+
 interface GoalUpdateData {
   id: string;
   status: ProgressStatus;
   note: string | null;
-}
-
-interface Creator {
-  id: string;
-  name: string;
+  createdById: string;
+  createdBy?: Creator | null;
 }
 
 interface GoalData {
@@ -75,6 +78,7 @@ export function GoalsPanel({
   className,
   defaultOpen,
   showGoalNotes = true,
+  flat = false,
 }: {
   employeeId: string;
   cycleId?: string | null;
@@ -87,7 +91,11 @@ export function GoalsPanel({
   defaultOpen?: boolean;
   /** Show the per-goal free-text progress note (status dropdown stays either way). */
   showGoalNotes?: boolean;
+  /** Render the content only, without the collapsible header (for embedding in a card). */
+  flat?: boolean;
 }) {
+  const { data: session, status: sessionStatus } = useSession();
+  const viewerId = session?.user?.id ?? null;
   const [goals, setGoals] = useState<GoalData[]>([]);
   const [metrics, setMetrics] = useState<MetricData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -140,9 +148,14 @@ export function GoalsPanel({
   }, [metrics, completedMetricIds]);
 
   const isEmpty = goals.length === 0 && metrics.length === 0;
+  const open = flat || !collapsed;
+  // Rows seed their editable state from the viewer's own update, so wait for
+  // the session before rendering them.
+  const ready = !loading && sessionStatus !== "loading";
 
   return (
     <div className={className ?? "max-w-2xl mx-auto mb-6"}>
+      {!flat && (
       <button
         type="button"
         onClick={() => setCollapsed(!collapsed)}
@@ -163,17 +176,18 @@ export function GoalsPanel({
           className={`text-ink-3 transition-transform ${collapsed ? "" : "rotate-180"}`}
         />
       </button>
+      )}
 
-      {!collapsed && (
-        <div className="border border-t-0 border-line rounded-b-lg p-4 space-y-4">
-          {loading && <p className="text-sm text-ink-3">Loading goals and key metrics...</p>}
+      {open && (
+        <div className={flat ? "space-y-4" : "border border-t-0 border-line rounded-b-lg p-4 space-y-4"}>
+          {!ready && !loadError && <p className="text-sm text-ink-3">Loading goals and key metrics...</p>}
           {loadError && <p className="text-sm text-magenta">{loadError}</p>}
-          {!loading && !loadError && isEmpty && (
+          {ready && !loadError && isEmpty && (
             <p className="text-sm text-ink-3">
               No goals or key metrics have been set for this cycle yet.
             </p>
           )}
-          {metrics.length > 0 && (
+          {ready && metrics.length > 0 && (
             <div>
               <p className="eyebrow mb-2">Key Metrics</p>
               <div className="space-y-2">
@@ -196,12 +210,12 @@ export function GoalsPanel({
               </div>
             </div>
           )}
-          {goals.length > 0 && (
+          {ready && goals.length > 0 && (
             <div>
               <p className="eyebrow mb-2">Goals</p>
               <div className="space-y-2">
                 {goals.map((g) => (
-                  <GoalRow key={g.id} goal={g} cycleId={cycleId} editable={editable} subjectId={employeeId} showGoalNotes={showGoalNotes} />
+                  <GoalRow key={g.id} goal={g} cycleId={cycleId} editable={editable} subjectId={employeeId} viewerId={viewerId} showGoalNotes={showGoalNotes} />
                 ))}
               </div>
             </div>
@@ -303,20 +317,32 @@ function MetricRow({
   );
 }
 
+// Who recorded an update, relative to the goal's owner.
+function authorLabel(update: GoalUpdateData, subjectId: string): string {
+  if (update.createdById === subjectId) return "Employee";
+  return update.createdBy?.name ?? "Manager";
+}
+
 function GoalRow({
   goal,
   cycleId,
   editable,
   subjectId,
+  viewerId,
   showGoalNotes,
 }: {
   goal: GoalData;
   cycleId?: string | null;
   editable: boolean;
   subjectId: string;
+  viewerId: string | null;
   showGoalNotes: boolean;
 }) {
-  const existing = goal.updates?.[0];
+  // Each author keeps their own update for the cycle. The viewer edits
+  // theirs; everyone else's is shown read-only beneath.
+  const updates = goal.updates ?? [];
+  const existing = updates.find((u) => u.createdById === viewerId);
+  const others = updates.filter((u) => u.createdById !== viewerId);
   const [status, setStatus] = useState<ProgressStatus>(existing?.status ?? "ON_TRACK");
   const [note, setNote] = useState(existing?.note ?? "");
   const [saving, setSaving] = useState(false);
@@ -362,8 +388,15 @@ function GoalRow({
             </p>
           )}
         </div>
-        {!editable && existing && (
-          <Badge variant={STATUS_VARIANTS[existing.status]}>{STATUS_LABELS[existing.status]}</Badge>
+        {!editable && updates.length > 0 && (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            {updates.map((u) => (
+              <span key={u.id} className="flex items-center gap-1.5">
+                <span className="tiny text-ink-3">{authorLabel(u, subjectId)}</span>
+                <Badge variant={STATUS_VARIANTS[u.status]}>{STATUS_LABELS[u.status]}</Badge>
+              </span>
+            ))}
+          </div>
         )}
       </div>
       {editable ? (
@@ -392,9 +425,24 @@ function GoalRow({
             />
           )}
           {error && <p className="text-xs text-magenta">{error}</p>}
+          {others.map((u) => (
+            <p key={u.id} className="text-xs text-ink-2">
+              <span className="font-medium text-ink">{authorLabel(u, subjectId)}:</span>{" "}
+              {STATUS_LABELS[u.status]}{u.note ? ` — ${u.note}` : ""}
+            </p>
+          ))}
         </div>
       ) : (
-        showGoalNotes && existing?.note && <p className="mt-1 text-sm text-ink-2">{existing.note}</p>
+        showGoalNotes &&
+        updates.some((u) => u.note) && (
+          <div className="mt-1 space-y-0.5">
+            {updates.filter((u) => u.note).map((u) => (
+              <p key={u.id} className="text-sm text-ink-2">
+                <span className="text-xs font-medium text-ink">{authorLabel(u, subjectId)}:</span> {u.note}
+              </p>
+            ))}
+          </div>
+        )
       )}
     </div>
   );
