@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { comparePeriodDesc } from "@/lib/utils";
 import { logAudit, diffFields } from "@/lib/audit";
-import { SELF_ASSESSMENT_FIELDS, pickFields } from "@/lib/assessment-fields";
+import { SELF_ASSESSMENT_FIELDS, SELF_REQUIRED_FIELDS, pickFields, missingRequired } from "@/lib/assessment-fields";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -41,17 +41,15 @@ export async function GET(request: Request) {
       const prev = await prisma.selfAssessment.findUnique({
         where: { cycleId_employeeId: { cycleId: previousCycle.id, employeeId: session.user.id } },
       });
-      if (prev?.submittedAt) {
+      // Only last cycle's stated goals come forward, as read-only context.
+      // Achievements, blockers and the rest must be written fresh each cycle.
+      if (prev?.submittedAt && prev.goalsNextMonth) {
         return NextResponse.json([{
           ...assessments[0],
-          _prefilled: {
-            performanceJustification: prev.performanceJustification,
-            achievements: prev.achievements,
-            blockers: prev.blockers,
-            learning: prev.learning,
-            valuesReflection: prev.valuesReflection,
-            engagementDriver: prev.engagementDriver,
-            supportNeeded: prev.supportNeeded,
+          _previous: {
+            quarter: previousCycle.quarter,
+            month: previousCycle.month,
+            year: previousCycle.year,
             goalsNextMonth: prev.goalsNextMonth,
           },
         }]);
@@ -95,6 +93,17 @@ export async function POST(request: Request) {
   // overwritten with a client-supplied timestamp.
   const content = pickFields(data, SELF_ASSESSMENT_FIELDS);
   const wantsSubmit = Boolean(data.submittedAt);
+
+  // Every rating must be set before the self-assessment counts as submitted.
+  if (wantsSubmit && !existing?.submittedAt) {
+    const missing = missingRequired({ ...(existing ?? {}), ...content }, SELF_REQUIRED_FIELDS);
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `Ratings still needed: ${missing.join(", ")}`, missing },
+        { status: 400 }
+      );
+    }
+  }
 
   const assessment = existing
     ? await prisma.selfAssessment.update({

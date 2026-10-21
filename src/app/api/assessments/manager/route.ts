@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
 import { logAudit, diffFields } from "@/lib/audit";
-import { MANAGER_ASSESSMENT_FIELDS, pickFields } from "@/lib/assessment-fields";
+import { MANAGER_ASSESSMENT_FIELDS, MANAGER_REQUIRED_FIELDS, pickFields, missingRequired } from "@/lib/assessment-fields";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -20,9 +20,13 @@ export async function GET(request: Request) {
   if (cycleId) where.cycleId = cycleId;
   if (employeeId) where.employeeId = employeeId;
 
-  // Managers see their own assessments; leadership/admin see all
+  // Managers see their own assessments; leadership/admin see all. Employees
+  // only ever see their own, and only once results have been sent.
   if (session.user.role === "MANAGER" || session.user.role === "AREA_LEAD") {
     where.managerId = session.user.id;
+  } else if (session.user.role === "EMPLOYEE") {
+    where.employeeId = session.user.id;
+    where.resultsSentAt = { not: null };
   }
 
   const assessments = await prisma.managerAssessment.findMany({
@@ -102,6 +106,17 @@ export async function POST(request: Request) {
   // overwritten with a client-supplied timestamp.
   const content = pickFields(data, MANAGER_ASSESSMENT_FIELDS);
   const wantsSubmit = Boolean(data.submittedAt);
+
+  // Every rating must be set before the assessment counts as submitted.
+  if (wantsSubmit && !existing?.submittedAt) {
+    const missing = missingRequired({ ...(existing ?? {}), ...content }, MANAGER_REQUIRED_FIELDS);
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `Ratings still needed: ${missing.join(", ")}`, missing },
+        { status: 400 }
+      );
+    }
+  }
 
   const assessment = existing
     ? await prisma.managerAssessment.update({

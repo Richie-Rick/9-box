@@ -26,6 +26,9 @@ export interface StepConfig {
   blockNext?: boolean;
   // Hint shown next to a blocked Next button explaining what's required.
   blockNextHint?: string;
+  // For multi-field steps: the field ids this step writes, so required-field
+  // checks can attribute a missing value to the step the user must revisit.
+  ownsFields?: string[];
 }
 
 interface StepFormProps {
@@ -40,6 +43,11 @@ interface StepFormProps {
   // When true the step's inputs are actually disabled (not just the footer
   // buttons) — used while a submitted assessment is locked for editing.
   disabled?: boolean;
+  // Field ids that must have a value before Submit is enabled. The matching
+  // step titles are listed next to the button so the gap is obvious.
+  requiredIds?: string[];
+  // Error returned by the last save/submit attempt, shown beneath the form.
+  error?: string | null;
 }
 
 export function StepForm({
@@ -52,11 +60,21 @@ export function StepForm({
   submitting,
   isSubmitted,
   disabled,
+  requiredIds = [],
+  error,
 }: StepFormProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const step = steps[currentStep];
   const isLast = currentStep === steps.length - 1;
   const isFirst = currentStep === 0;
+
+  // Steps that still have a required field without a value. A multi-field
+  // step counts as missing if any of its required ids is empty.
+  const missingSteps = steps.filter((s) => {
+    const ids = requiredIds.filter((id) => id === s.id || s.ownsFields?.includes(id));
+    return ids.some((id) => values[id] === null || values[id] === undefined || values[id] === "");
+  });
+  const canSubmit = missingSteps.length === 0;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -93,6 +111,12 @@ export function StepForm({
         )}
       </div>
 
+      {error && (
+        <div className="mt-4 rounded-lg bg-magenta-3 border border-magenta/25 p-3 text-sm text-magenta-2">
+          {error}
+        </div>
+      )}
+
       {/* Navigation */}
       <div className="flex items-center justify-between mt-6">
         <Button
@@ -107,9 +131,16 @@ export function StepForm({
             {saving ? "Saving..." : "Save Draft"}
           </Button>
           {isLast ? (
-            <Button onClick={onSubmit} disabled={submitting || isSubmitted}>
-              {isSubmitted ? "Submitted" : submitting ? "Submitting..." : "Submit"}
-            </Button>
+            <div className="flex items-center gap-3">
+              {!isSubmitted && !canSubmit && (
+                <span className="text-xs text-ink-3 max-w-[16rem] text-right">
+                  Still needed: {missingSteps.map((s) => s.title).join(", ")}
+                </span>
+              )}
+              <Button onClick={onSubmit} disabled={submitting || isSubmitted || !canSubmit}>
+                {isSubmitted ? "Submitted" : submitting ? "Submitting..." : "Submit"}
+              </Button>
+            </div>
           ) : (
             <div className="flex items-center gap-3">
               {step.blockNext && step.blockNextHint && (

@@ -5,6 +5,8 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { StepForm, TextStep, MultiRatingStep, RatingWithComment, type StepConfig } from "@/components/assessments/step-form";
 import { assessmentPrompts } from "@/lib/assessment-prompts";
+import { SELF_REQUIRED_FIELDS } from "@/lib/assessment-fields";
+import { formatCyclePeriod } from "@/lib/utils";
 import { GoalsPanel } from "@/components/assessments/goals-panel";
 import { ActionsEditor } from "@/components/meetings/actions-editor";
 import { SelfGoalsEditor } from "@/components/assessments/self-goals-editor";
@@ -22,7 +24,14 @@ export default function SelfAssessmentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [prefilled, setPrefilled] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Last cycle's stated goals, shown read-only as context for this one.
+  const [previous, setPrevious] = useState<{
+    quarter: number | null;
+    month: number | null;
+    year: number;
+    goalsNextMonth: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!cycleId) return;
@@ -33,24 +42,23 @@ export default function SelfAssessmentPage() {
           const a = data[0];
           setAssessmentId(a.id);
           setIsSubmitted(!!a.submittedAt);
-          const prev = a._prefilled;
           setValues({
             performance: a.performance,
-            performanceJustification: a.performanceJustification || prev?.performanceJustification || "",
-            achievements: a.achievements || prev?.achievements || "",
-            blockers: a.blockers || prev?.blockers || "",
-            learning: a.learning || prev?.learning || "",
+            performanceJustification: a.performanceJustification || "",
+            achievements: a.achievements || "",
+            blockers: a.blockers || "",
+            learning: a.learning || "",
             valCustomerFirst: a.valCustomerFirst,
             valStepIntoArena: a.valStepIntoArena,
             valFlockToProblems: a.valFlockToProblems,
             valGiveEnergy: a.valGiveEnergy,
-            valuesReflection: a.valuesReflection || prev?.valuesReflection || "",
+            valuesReflection: a.valuesReflection || "",
             engagement: a.engagement,
-            engagementDriver: a.engagementDriver || prev?.engagementDriver || "",
-            supportNeeded: a.supportNeeded || prev?.supportNeeded || "",
-            goalsNextMonth: a.goalsNextMonth || prev?.goalsNextMonth || "",
+            engagementDriver: a.engagementDriver || "",
+            supportNeeded: a.supportNeeded || "",
+            goalsNextMonth: a.goalsNextMonth || "",
           });
-          if (prev) setPrefilled(true);
+          setPrevious(a._previous ?? null);
         }
       });
   }, [cycleId]);
@@ -64,6 +72,7 @@ export default function SelfAssessmentPage() {
 
     if (submit) setSubmitting(true);
     else setSaving(true);
+    setError(null);
 
     try {
       const res = await fetch("/api/assessments/self", {
@@ -71,7 +80,11 @@ export default function SelfAssessmentPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `Failed to ${submit ? "submit" : "save"} (${res.status})`);
+        return;
+      }
       setAssessmentId(data.id);
       if (submit) {
         setIsSubmitted(true);
@@ -148,6 +161,7 @@ export default function SelfAssessmentPage() {
       id: "values",
       title: "Values Alignment",
       description: "Rate yourself against each value, then share overall reflections for the section.",
+      ownsFields: ["valCustomerFirst", "valStepIntoArena", "valFlockToProblems", "valGiveEnergy"],
       renderMulti: (vals, onChange) => (
         <MultiRatingStep
           values={vals}
@@ -189,6 +203,12 @@ export default function SelfAssessmentPage() {
       title: "What are your goals for next quarter?",
       description: "Add each goal individually. They are saved to your profile and tracked over time.",
       render: () => (session?.user?.id ? <SelfGoalsEditor employeeId={session.user.id} /> : null),
+      footer: previous ? (
+        <div className="rounded-lg bg-paper-2 border border-line p-4">
+          <p className="eyebrow mb-1">What you set out to do in {formatCyclePeriod(previous)}</p>
+          <p className="text-sm text-ink-2 whitespace-pre-wrap">{previous.goalsNextMonth}</p>
+        </div>
+      ) : undefined,
     },
   ];
 
@@ -207,13 +227,6 @@ export default function SelfAssessmentPage() {
         title={<>Your <em>reflection.</em></>}
         sub="Take your time. Your responses auto-save as drafts."
       />
-      {prefilled && (
-        <div className="rounded-lg bg-paper-2 border border-line p-3 mb-6 max-w-2xl mx-auto">
-          <p className="text-sm text-ink-2">
-            Text responses have been pre-filled from last quarter. Review and update as needed.
-          </p>
-        </div>
-      )}
       {isSubmitted && !editing && (
         <div className="max-w-2xl mx-auto mb-6 flex items-center justify-between gap-3 rounded-lg bg-paper-2 border border-amber/40 p-4">
           <p className="text-sm text-ink-2">
@@ -234,6 +247,8 @@ export default function SelfAssessmentPage() {
         submitting={submitting}
         isSubmitted={locked}
         disabled={locked}
+        requiredIds={SELF_REQUIRED_FIELDS}
+        error={error}
       />
     </div>
   );

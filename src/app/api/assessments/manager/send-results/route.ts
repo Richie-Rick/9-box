@@ -20,15 +20,6 @@ export async function POST(request: Request) {
 
   const assessment = await prisma.managerAssessment.findUnique({
     where: { id: assessmentId },
-    include: {
-      employee: {
-        include: {
-          selfAssessments: {
-            where: { cycleId: undefined },
-          },
-        },
-      },
-    },
   });
 
   if (!assessment) {

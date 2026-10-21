@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isManager } from "@/lib/permissions";
+import { canManageEmployee } from "@/lib/permissions";
 import { dbErrorResponse } from "@/lib/api-error";
 
 export async function GET(request: Request) {
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   }
 
   const isOwn = employeeId === session.user.id;
-  if (!isOwn && !isManager(session.user.role)) {
+  if (!isOwn && !(await canManageEmployee(session.user.id, session.user.role, employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -51,9 +51,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "employeeId and title are required" }, { status: 400 });
   }
 
-  // Employees may set their own goals; managers may set goals for anyone.
+  // Employees may set their own goals; managers may set goals for their reports.
   const isOwnGoal = employeeId === session.user.id;
-  if (!isOwnGoal && !isManager(session.user.role)) {
+  if (!isOwnGoal && !(await canManageEmployee(session.user.id, session.user.role, employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -93,7 +93,7 @@ export async function PATCH(request: Request) {
 
   const isCreator = goal.createdById === session.user.id;
   const isOwner = goal.employeeId === session.user.id;
-  if (!isCreator && !isOwner && !isManager(session.user.role)) {
+  if (!isCreator && !isOwner && !(await canManageEmployee(session.user.id, session.user.role, goal.employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

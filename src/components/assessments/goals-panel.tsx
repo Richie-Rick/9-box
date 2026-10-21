@@ -91,6 +91,7 @@ export function GoalsPanel({
   const [goals, setGoals] = useState<GoalData[]>([]);
   const [metrics, setMetrics] = useState<MetricData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(defaultOpen ? false : !editable);
   const [completedMetricIds, setCompletedMetricIds] = useState<Set<string>>(new Set());
 
@@ -98,10 +99,19 @@ export function GoalsPanel({
     `${path}?employeeId=${employeeId}${cycleId ? `&cycleId=${cycleId}` : ""}`;
 
   useEffect(() => {
-    Promise.all([
-      fetch(query("/api/goals")).then((r) => (r.ok ? r.json() : [])),
-      fetch(query("/api/key-metrics")).then((r) => (r.ok ? r.json() : [])),
-    ])
+    // A failed request used to be swallowed as an empty list, so the panel
+    // silently vanished (B5). Surface the failure instead.
+    const load = async (path: string) => {
+      const r = await fetch(query(path));
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        throw new Error(e.error || `Could not load ${path.replace("/api/", "")} (${r.status})`);
+      }
+      return r.json();
+    };
+    setLoading(true);
+    setLoadError(null);
+    Promise.all([load("/api/goals"), load("/api/key-metrics")])
       .then(([g, m]: [GoalData[], MetricData[]]) => {
         // Active goals, plus any goal already reviewed in this cycle.
         setGoals(
@@ -116,7 +126,10 @@ export function GoalsPanel({
         );
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err: Error) => {
+        setLoadError(err.message || "Could not load goals and key metrics");
+        setLoading(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, cycleId]);
 
@@ -126,8 +139,7 @@ export function GoalsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [metrics, completedMetricIds]);
 
-  if (loading) return null;
-  if (goals.length === 0 && metrics.length === 0) return null;
+  const isEmpty = goals.length === 0 && metrics.length === 0;
 
   return (
     <div className={className ?? "max-w-2xl mx-auto mb-6"}>
@@ -154,6 +166,13 @@ export function GoalsPanel({
 
       {!collapsed && (
         <div className="border border-t-0 border-line rounded-b-lg p-4 space-y-4">
+          {loading && <p className="text-sm text-ink-3">Loading goals and key metrics...</p>}
+          {loadError && <p className="text-sm text-magenta">{loadError}</p>}
+          {!loading && !loadError && isEmpty && (
+            <p className="text-sm text-ink-3">
+              No goals or key metrics have been set for this cycle yet.
+            </p>
+          )}
           {metrics.length > 0 && (
             <div>
               <p className="eyebrow mb-2">Key Metrics</p>
