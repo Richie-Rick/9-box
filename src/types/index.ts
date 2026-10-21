@@ -39,8 +39,15 @@ export interface ManagerAssessmentData {
   achievementsObserved: string | null;
   blockersToRemove: string | null;
   supportCommitted: string | null;
+  responsePerformance?: string | null;
+  responseGrowth?: string | null;
+  responseValues?: string | null;
+  responseEngagement?: string | null;
+  initialRatings?: Record<string, number> | null;
   notes: string | null;
   submittedAt: string | null;
+  sharedAt?: string | null;
+  resultsSentAt?: string | null;
   meetingStatus?: MeetingStatus;
   createdAt: string;
   updatedAt: string;
@@ -85,6 +92,7 @@ export interface TeamMemberStatus {
   meetingStatus?: MeetingStatus;
   meetingStarted?: boolean;
   managerAssessmentId?: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
 }
 

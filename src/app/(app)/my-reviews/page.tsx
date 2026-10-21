@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
@@ -56,8 +57,11 @@ interface ManagerAssessmentData {
   supportCommitted: string | null;
   notes: string | null;
   submittedAt: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
   manager: { id: string; name: string };
+  editedSinceShared?: boolean;
+  meeting?: { notes: string | null; completedAt: string | null } | null;
 }
 
 interface SummaryData {
@@ -136,7 +140,8 @@ export default function MyResultsPage() {
               const res = await fetch(`/api/assessments/summary?employeeId=${session.user.id}&cycleId=${cycle.id}`);
               if (res.ok) {
                 const data: SummaryData = await res.json();
-                if (data.selfAssessment?.submittedAt || data.managerAssessment?.submittedAt) {
+                const mgr = data.managerAssessment;
+                if (data.selfAssessment?.submittedAt || mgr?.sharedAt || mgr?.resultsSentAt) {
                   results.set(cycle.id, data);
                 }
               }
@@ -172,7 +177,7 @@ export default function MyResultsPage() {
     .map((c) => {
       const d = summaries.get(c.id)!;
       const mgr = d.managerAssessment;
-      if (!mgr?.resultsSentAt || !mgr.performance) return null;
+      if (!(mgr?.sharedAt || mgr?.resultsSentAt) || !mgr.performance) return null;
       const va = mgr.valCustomerFirst && mgr.valStepIntoArena && mgr.valFlockToProblems && mgr.valGiveEnergy
         ? getValuesAlignment(mgr.valCustomerFirst, mgr.valStepIntoArena, mgr.valFlockToProblems, mgr.valGiveEnergy)
         : null;
@@ -262,7 +267,9 @@ export default function MyResultsPage() {
         const box1Label = mgr?.performance && mgr?.growthReadiness ? getBox1Label(mgr.performance, mgr.growthReadiness) : null;
         const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
 
-        const showManager = !!mgr?.resultsSentAt;
+        // The manager's side appears once the review is shared ahead of the
+        // 1:1 (or results are sent).
+        const showManager = !!(mgr?.sharedAt || mgr?.resultsSentAt);
 
         // Rows come from the shared section config; the manager side is
         // blank until results are shared.
@@ -278,9 +285,16 @@ export default function MyResultsPage() {
                     <Badge variant="success">Self-Assessment Submitted</Badge>
                   )}
                   {mgr?.resultsSentAt ? (
-                    <Badge variant="success">Results Shared</Badge>
+                    <Badge variant="success">Review Complete</Badge>
+                  ) : mgr?.sharedAt ? (
+                    <Badge variant="navy">Shared ahead of 1:1</Badge>
                   ) : (
                     <Badge variant="warning">Pending Manager Review</Badge>
+                  )}
+                  {showManager && mgr?.editedSinceShared && (
+                    <span title="Your manager changed a rating or comment after sharing">
+                      <Badge variant="warning">Updated since shared</Badge>
+                    </span>
                   )}
                 </div>
               </div>
@@ -312,6 +326,23 @@ export default function MyResultsPage() {
                   </h3>
                   <p className="text-xs text-ink-3 mb-2">Click a dimension to expand and compare notes</p>
                   <DimensionComparison sections={sections} showManagerColumn={showManager} />
+                </div>
+              )}
+
+              {showManager && mgr?.meeting?.completedAt && (
+                <div className="rounded-lg border border-success/40 bg-success/10 p-4">
+                  <h3 className="eyebrow mb-1">From your 1:1</h3>
+                  <p className="text-xs text-ink-3 mb-2">
+                    Held <span className="mono tnum">{new Date(mgr.meeting.completedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  </p>
+                  {mgr.meeting.notes ? (
+                    <p className="text-sm text-ink whitespace-pre-wrap">{mgr.meeting.notes}</p>
+                  ) : (
+                    <p className="text-sm text-ink-3 italic">No notes were recorded.</p>
+                  )}
+                  <p className="text-xs text-ink-3 mt-2">
+                    Actions agreed in the meeting are on your <Link href="/tasks" className="text-magenta hover:underline">Tasks</Link> page.
+                  </p>
                 </div>
               )}
 

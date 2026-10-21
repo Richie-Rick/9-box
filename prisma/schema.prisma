@@ -175,9 +175,21 @@ model ManagerAssessment {
   achievementsObserved String?
   blockersToRemove     String?
   supportCommitted     String?
+  // The manager's replies to the employee's comments, written after the
+  // self-assessment is revealed section by section (rate blind, then respond).
+  responsePerformance  String?
+  responseGrowth       String?
+  responseValues       String?
+  responseEngagement   String?
+  // Manager ratings as they stood when each section's self-assessment was
+  // first revealed, so later adjustments can be compared against them.
+  initialRatings       Json?
   trend               TrendDirection?
   notes               String?
   submittedAt         DateTime?
+  // Shared with the employee ahead of the 1:1 (ratings and comments visible).
+  sharedAt            DateTime?
+  // Close-out after the meeting; locks the assessment.
   resultsSentAt       DateTime?
   meetingStatus       MeetingStatus @default(NOT_READY)
   meeting             Meeting?

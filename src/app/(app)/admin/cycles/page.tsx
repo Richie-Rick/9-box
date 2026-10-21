@@ -21,6 +21,7 @@ interface CycleAssessment {
   overallStatus: "pending" | "in_progress" | "ready_to_send" | "results_sent";
   createdAt: string;
   submittedAt: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
 }
 
@@ -299,6 +300,7 @@ export default function AdminCyclesPage() {
                                     <div className="flex items-center gap-2.5 mt-1 tiny">
                                       <span className={a.selfStatus === "submitted" ? "text-success" : "text-ink-4"} title="Self">● Self</span>
                                       <span className={a.managerStatus === "submitted" ? "text-success" : "text-ink-4"} title="Manager">● Mgr</span>
+                                      <span className={a.sharedAt ? "text-navy" : "text-ink-4"} title="Shared with employee">● Shared</span>
                                     </div>
                                   </div>
                                 ))}
