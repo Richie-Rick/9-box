@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -223,14 +224,22 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
       {invitationBanner}
       {summaryCard}
 
-      {/* Goals & Key Metrics — current cycle progress (read-only) */}
+      {/* Goals & Key Metrics — always visible, current cycle progress (read-only) */}
       {showGoals && session?.user?.id && (
-        <GoalsPanel
-          employeeId={session.user.id}
-          cycleId={goalsCycleId}
-          className=""
-          defaultOpen
-        />
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-3 w-full">
+              <div>
+                <div className="eyebrow mb-1">{goalsCycleId && openCycle?.id === goalsCycleId ? "This cycle" : "Latest cycle"}</div>
+                <CardTitle>Goals &amp; <em>key metrics.</em></CardTitle>
+              </div>
+              <Link href="/goals" className="card-action">Manage →</Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <GoalsPanel employeeId={session.user.id} cycleId={goalsCycleId} className="" flat />
+          </CardContent>
+        </Card>
       )}
 
       {/* Cycle Cards */}

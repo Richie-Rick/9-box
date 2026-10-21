@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
-import { getGrowthReadinessLabel, formatCyclePeriod } from "@/lib/utils";
+import { formatCyclePeriod } from "@/lib/utils";
 import {
   getBox1Label,
   getBox2Label,
@@ -17,6 +17,7 @@ import {
   getBox2Action,
 } from "@/lib/nine-box";
 import { DimensionComparison } from "@/components/assessments/dimension-comparison";
+import { buildComparisonRows } from "@/lib/comparison";
 import { GoalsPanel } from "@/components/assessments/goals-panel";
 import { ReviewNotesPanel } from "@/components/assessments/review-notes-panel";
 import { ActionsEditor } from "@/components/meetings/actions-editor";
@@ -30,6 +31,8 @@ interface SummaryData {
     achievements: string | null;
     blockers: string | null;
     learning: string | null;
+    growthReadiness: number | null;
+    growthReflection: string | null;
     valCustomerFirst: number | null;
     valStepIntoArena: number | null;
     valFlockToProblems: number | null;
@@ -54,6 +57,9 @@ interface SummaryData {
     valuesEvidence: string | null;
     engagement: number | null;
     engagementEvidence: string | null;
+    achievementsObserved: string | null;
+    blockersToRemove: string | null;
+    supportCommitted: string | null;
     notes: string | null;
     submittedAt: string | null;
     resultsSentAt: string | null;
@@ -176,81 +182,9 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
   const box1Label = mgr?.performance && mgr?.growthReadiness ? getBox1Label(mgr.performance, mgr.growthReadiness) : null;
   const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
 
-  const comparisonSections = [
-    {
-      id: "performance",
-      label: "Performance",
-      selfRating: self?.performance ?? null,
-      managerRating: mgr?.performance ?? null,
-      selfText: [
-        { label: "Justification", value: self?.performanceJustification ?? null },
-        { label: "Achievements", value: self?.achievements ?? null },
-        { label: "Blockers", value: self?.blockers ?? null },
-      ],
-      managerText: [
-        { label: "Evidence", value: mgr?.performanceEvidence ?? null },
-      ],
-    },
-    {
-      id: "growthReadiness",
-      label: "Growth Readiness",
-      selfRating: null,
-      managerRating: mgr?.growthReadiness ?? null,
-      labelFn: getGrowthReadinessLabel,
-      managerText: [
-        { label: "Evidence", value: mgr?.growthReadinessEvidence ?? null },
-      ],
-    },
-    {
-      id: "valCustomerFirst",
-      label: "Customer First",
-      selfRating: self?.valCustomerFirst ?? null,
-      managerRating: mgr?.valCustomerFirst ?? null,
-    },
-    {
-      id: "valStepIntoArena",
-      label: "Step Into the Arena",
-      selfRating: self?.valStepIntoArena ?? null,
-      managerRating: mgr?.valStepIntoArena ?? null,
-    },
-    {
-      id: "valFlockToProblems",
-      label: "Flock to Problems",
-      selfRating: self?.valFlockToProblems ?? null,
-      managerRating: mgr?.valFlockToProblems ?? null,
-    },
-    {
-      id: "valGiveEnergy",
-      label: "Give Energy",
-      selfRating: self?.valGiveEnergy ?? null,
-      managerRating: mgr?.valGiveEnergy ?? null,
-    },
-    {
-      id: "values",
-      label: "Values Reflection",
-      selfRating: null,
-      managerRating: null,
-      selfText: [
-        { label: "Reflection", value: self?.valuesReflection ?? null },
-      ],
-      managerText: [
-        { label: "Evidence", value: mgr?.valuesEvidence ?? null },
-      ],
-    },
-    {
-      id: "engagement",
-      label: "Engagement",
-      selfRating: self?.engagement ?? null,
-      managerRating: mgr?.engagement ?? null,
-      selfText: [
-        { label: "Driver", value: self?.engagementDriver ?? null },
-        { label: "Support Needed", value: self?.supportNeeded ?? null },
-      ],
-      managerText: [
-        { label: "Evidence", value: mgr?.engagementEvidence ?? null },
-      ],
-    },
-  ];
+  // Rows come from the shared section config, so both sides' answers to the
+  // same question sit together.
+  const comparisonSections = buildComparisonRows(self, mgr);
 
   return (
     <div className="space-y-6">
@@ -368,47 +302,6 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
           ]}
         />
       </Card>
-
-      {/* Additional Self-Assessment Context */}
-      {self?.submittedAt && (self.learning || self.goalsNextMonth) && (
-        <Card>
-          <div className="card-head">
-            <div>
-              <div className="eyebrow">Self-assessment</div>
-              <h2 className="card-title">Additional Context</h2>
-            </div>
-          </div>
-          <CardContent className="space-y-4">
-            {self.learning && (
-              <div>
-                <p className="eyebrow mb-1">Learning</p>
-                <p className="text-sm text-ink">{self.learning}</p>
-              </div>
-            )}
-            {self.goalsNextMonth && (
-              <div>
-                <p className="eyebrow mb-1">Goals for Next Quarter</p>
-                <p className="text-sm text-ink">{self.goalsNextMonth}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Manager Additional Notes */}
-      {mgr?.submittedAt && mgr.notes && (
-        <Card>
-          <div className="card-head">
-            <div>
-              <div className="eyebrow">Assessed by {mgr.manager.name}</div>
-              <h2 className="card-title">Manager Notes</h2>
-            </div>
-          </div>
-          <CardContent>
-            <p className="text-sm text-ink">{mgr.notes}</p>
-          </CardContent>
-        </Card>
-      )}
 
       {/* 1:1 meeting — managed from the Dashboard board; runnable once scheduled */}
       {isManagerView && mgr?.submittedAt && (

@@ -22,7 +22,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // When a cycleId is supplied, include this cycle's progress update on each goal.
+  // When a cycleId is supplied, include this cycle's progress updates on each
+  // goal (one per author: the employee's and the manager's).
   const cycleId = searchParams.get("cycleId");
 
   const goals = await prisma.goal.findMany({
@@ -30,7 +31,11 @@ export async function GET(request: Request) {
     include: {
       createdBy: { select: { id: true, name: true } },
       updates: cycleId
-        ? { where: { cycleId }, orderBy: { createdAt: "desc" }, take: 1 }
+        ? {
+            where: { cycleId },
+            include: { createdBy: { select: { id: true, name: true } } },
+            orderBy: { createdAt: "asc" },
+          }
         : false,
     },
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],

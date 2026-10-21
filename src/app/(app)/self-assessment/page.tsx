@@ -3,9 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { StepForm, TextStep, MultiRatingStep, RatingWithComment, type StepConfig } from "@/components/assessments/step-form";
-import { assessmentPrompts } from "@/lib/assessment-prompts";
-import { SELF_REQUIRED_FIELDS } from "@/lib/assessment-fields";
+import { AssessmentForm, buildFormSections, initialValues, type FormSection } from "@/components/assessments/assessment-form";
 import { formatCyclePeriod } from "@/lib/utils";
 import { GoalsPanel } from "@/components/assessments/goals-panel";
 import { ActionsEditor } from "@/components/meetings/actions-editor";
@@ -42,22 +40,7 @@ export default function SelfAssessmentPage() {
           const a = data[0];
           setAssessmentId(a.id);
           setIsSubmitted(!!a.submittedAt);
-          setValues({
-            performance: a.performance,
-            performanceJustification: a.performanceJustification || "",
-            achievements: a.achievements || "",
-            blockers: a.blockers || "",
-            learning: a.learning || "",
-            valCustomerFirst: a.valCustomerFirst,
-            valStepIntoArena: a.valStepIntoArena,
-            valFlockToProblems: a.valFlockToProblems,
-            valGiveEnergy: a.valGiveEnergy,
-            valuesReflection: a.valuesReflection || "",
-            engagement: a.engagement,
-            engagementDriver: a.engagementDriver || "",
-            supportNeeded: a.supportNeeded || "",
-            goalsNextMonth: a.goalsNextMonth || "",
-          });
+          setValues(initialValues("self", a));
           setPrevious(a._previous ?? null);
         }
       });
@@ -112,105 +95,46 @@ export default function SelfAssessmentPage() {
   // Locked after submit until the employee re-opens it for editing. While
   // locked the form is read-only.
   const locked = isSubmitted && !editing;
+  const userId = session?.user?.id;
 
-  const steps: StepConfig[] = [
-    {
-      id: "performance",
-      title: "How would you rate your performance this quarter?",
-      description: "Consider your output, quality of work, and meeting of objectives.",
-      renderMulti: (vals, onChange) => (
-        <RatingWithComment
-          values={vals}
-          onChange={onChange}
-          ratingId="performance"
-          commentId="performanceJustification"
-          prompts={assessmentPrompts.performance?.self}
-          commentPlaceholder="Describe your key contributions and the evidence behind your rating..."
-        />
-      ),
-      // Mirror what the manager sees under their Performance step: the
+  const sections: FormSection[] = buildFormSections("self", "").map((section) => {
+    if (section.id === "performance" && userId) {
+      // Mirror what the manager sees under their Performance section: the
       // goals & key-metrics panel plus the tasks/actions list. (No review
       // notes — those stay manager-only, as on the manager flow.)
-      footer: session?.user?.id ? (
-        <>
-          <GoalsPanel employeeId={session.user.id} cycleId={cycleId} editable={!locked} showGoalNotes={false} />
-          <ActionsEditor
-            employeeId={session.user.id}
-            readOnly
-            assigneeOptions={[{ id: session.user.id, name: session.user.name || "You" }]}
-          />
-        </>
-      ) : undefined,
-    },
-    {
-      id: "achievements",
-      title: "What are your key achievements this quarter?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="List your main accomplishments..." />,
-    },
-    {
-      id: "blockers",
-      title: "What blockers or challenges did you face?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Describe any obstacles that impacted your work..." />,
-    },
-    {
-      id: "learning",
-      title: "What did you learn this quarter?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Skills developed, insights gained..." />,
-    },
-    {
-      id: "values",
-      title: "Values Alignment",
-      description: "Rate yourself against each value, then share overall reflections for the section.",
-      ownsFields: ["valCustomerFirst", "valStepIntoArena", "valFlockToProblems", "valGiveEnergy"],
-      renderMulti: (vals, onChange) => (
-        <MultiRatingStep
-          values={vals}
-          onChange={onChange}
-          commentId="valuesReflection"
-          commentLabel="Values Reflection"
-          commentPlaceholder="Give specific examples of how you demonstrated Visory values..."
-          items={[
-            { id: "valCustomerFirst", label: "Customer First", prompts: assessmentPrompts.valCustomerFirst?.self },
-            { id: "valStepIntoArena", label: "Step Into the Arena", prompts: assessmentPrompts.valStepIntoArena?.self },
-            { id: "valFlockToProblems", label: "Flock to Problems", prompts: assessmentPrompts.valFlockToProblems?.self },
-            { id: "valGiveEnergy", label: "Give Energy", prompts: assessmentPrompts.valGiveEnergy?.self },
-          ]}
-        />
-      ),
-    },
-    {
-      id: "engagement",
-      title: "How engaged do you feel at work?",
-      description: "Consider your motivation, energy, and connection to the team.",
-      renderMulti: (vals, onChange) => (
-        <RatingWithComment
-          values={vals}
-          onChange={onChange}
-          ratingId="engagement"
-          commentId="engagementDriver"
-          prompts={assessmentPrompts.engagement?.self}
-          commentPlaceholder="What's driving your engagement level — what energises or drains you..."
-        />
-      ),
-    },
-    {
-      id: "supportNeeded",
-      title: "What support do you need from your manager?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Resources, guidance, feedback..." />,
-    },
-    {
-      id: "goals",
-      title: "What are your goals for next quarter?",
-      description: "Add each goal individually. They are saved to your profile and tracked over time.",
-      render: () => (session?.user?.id ? <SelfGoalsEditor employeeId={session.user.id} /> : null),
-      footer: previous ? (
-        <div className="rounded-lg bg-paper-2 border border-line p-4">
-          <p className="eyebrow mb-1">What you set out to do in {formatCyclePeriod(previous)}</p>
-          <p className="text-sm text-ink-2 whitespace-pre-wrap">{previous.goalsNextMonth}</p>
-        </div>
-      ) : undefined,
-    },
-  ];
+      return {
+        ...section,
+        footer: (
+          <>
+            <GoalsPanel employeeId={userId} cycleId={cycleId} editable={!locked} showGoalNotes={false} />
+            <ActionsEditor
+              employeeId={userId}
+              readOnly
+              assigneeOptions={[{ id: userId, name: session?.user?.name || "You" }]}
+            />
+          </>
+        ),
+      };
+    }
+    if (section.id === "ahead" && userId) {
+      return {
+        ...section,
+        intro: "Add each goal individually. They are saved to your profile and tracked over time.",
+        footer: (
+          <>
+            {previous && (
+              <div className="rounded-lg bg-paper-2 border border-line p-4">
+                <p className="eyebrow mb-1">What you set out to do in {formatCyclePeriod(previous)}</p>
+                <p className="text-sm text-ink-2 whitespace-pre-wrap">{previous.goalsNextMonth}</p>
+              </div>
+            )}
+            <SelfGoalsEditor employeeId={userId} />
+          </>
+        ),
+      };
+    }
+    return section;
+  });
 
   if (!cycleId) {
     return (
@@ -225,7 +149,7 @@ export default function SelfAssessmentPage() {
       <PageHeader
         eyebrow="Self-Assessment"
         title={<>Your <em>reflection.</em></>}
-        sub="Take your time. Your responses auto-save as drafts."
+        sub="Take your time. Save a draft whenever you like; your manager only sees it once you submit."
       />
       {isSubmitted && !editing && (
         <div className="max-w-2xl mx-auto mb-6 flex items-center justify-between gap-3 rounded-lg bg-paper-2 border border-amber/40 p-4">
@@ -237,8 +161,8 @@ export default function SelfAssessmentPage() {
           </Button>
         </div>
       )}
-      <StepForm
-        steps={steps}
+      <AssessmentForm
+        sections={sections}
         values={values}
         onChange={(key, val) => setValues((v) => ({ ...v, [key]: val }))}
         onSave={() => save(false)}
@@ -247,7 +171,6 @@ export default function SelfAssessmentPage() {
         submitting={submitting}
         isSubmitted={locked}
         disabled={locked}
-        requiredIds={SELF_REQUIRED_FIELDS}
         error={error}
       />
     </div>
