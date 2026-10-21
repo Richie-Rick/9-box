@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
-import { getGrowthReadinessLabel, formatCyclePeriod } from "@/lib/utils";
+import { formatCyclePeriod } from "@/lib/utils";
 import {
   getBox1Label,
   getBox2Label,
@@ -16,13 +17,17 @@ import {
   getBox2Color,
 } from "@/lib/nine-box";
 import { DimensionComparison } from "@/components/assessments/dimension-comparison";
+import { buildComparisonRows } from "@/lib/comparison";
 
 interface SelfAssessmentData {
+  id: string;
   performance: number | null;
   performanceJustification: string | null;
   achievements: string | null;
   blockers: string | null;
   learning: string | null;
+  growthReadiness: number | null;
+  growthReflection: string | null;
   valCustomerFirst: number | null;
   valStepIntoArena: number | null;
   valFlockToProblems: number | null;
@@ -47,10 +52,16 @@ interface ManagerAssessmentData {
   valuesEvidence: string | null;
   engagement: number | null;
   engagementEvidence: string | null;
+  achievementsObserved: string | null;
+  blockersToRemove: string | null;
+  supportCommitted: string | null;
   notes: string | null;
   submittedAt: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
   manager: { id: string; name: string };
+  editedSinceShared?: boolean;
+  meeting?: { notes: string | null; completedAt: string | null } | null;
 }
 
 interface SummaryData {
@@ -66,6 +77,47 @@ interface CycleData {
   quarter: number | null;
   year: number;
   status: string;
+}
+
+interface AuditEntry {
+  id: string;
+  action: string;
+  summary: string | null;
+  createdAt: string;
+  actor: { id: string; name: string };
+}
+
+// Compact audit trail for an employee's own self-assessment.
+function SelfAuditTrail({ selfAssessmentId }: { selfAssessmentId: string }) {
+  const [logs, setLogs] = useState<AuditEntry[]>([]);
+  useEffect(() => {
+    fetch(`/api/audit?entityType=SelfAssessment&entityId=${selfAssessmentId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setLogs(Array.isArray(d) ? d : []))
+      .catch(() => setLogs([]));
+  }, [selfAssessmentId]);
+
+  if (logs.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="eyebrow mb-2">History</h3>
+      <ul className="space-y-2">
+        {logs.map((log) => (
+          <li key={log.id} className="text-sm text-ink-2 flex flex-col sm:flex-row sm:items-center sm:gap-2">
+            <span className="mono tnum text-xs text-ink-3 whitespace-nowrap">
+              {new Date(log.createdAt).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" })}
+            </span>
+            <span>
+              <span className="font-medium text-ink">{log.actor.name}</span>
+              {" — "}
+              {log.summary || log.action}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 export default function MyResultsPage() {
@@ -88,7 +140,8 @@ export default function MyResultsPage() {
               const res = await fetch(`/api/assessments/summary?employeeId=${session.user.id}&cycleId=${cycle.id}`);
               if (res.ok) {
                 const data: SummaryData = await res.json();
-                if (data.selfAssessment?.submittedAt || data.managerAssessment?.submittedAt) {
+                const mgr = data.managerAssessment;
+                if (data.selfAssessment?.submittedAt || mgr?.sharedAt || mgr?.resultsSentAt) {
                   results.set(cycle.id, data);
                 }
               }
@@ -124,7 +177,7 @@ export default function MyResultsPage() {
     .map((c) => {
       const d = summaries.get(c.id)!;
       const mgr = d.managerAssessment;
-      if (!mgr?.resultsSentAt || !mgr.performance) return null;
+      if (!(mgr?.sharedAt || mgr?.resultsSentAt) || !mgr.performance) return null;
       const va = mgr.valCustomerFirst && mgr.valStepIntoArena && mgr.valFlockToProblems && mgr.valGiveEnergy
         ? getValuesAlignment(mgr.valCustomerFirst, mgr.valStepIntoArena, mgr.valFlockToProblems, mgr.valGiveEnergy)
         : null;
@@ -214,83 +267,13 @@ export default function MyResultsPage() {
         const box1Label = mgr?.performance && mgr?.growthReadiness ? getBox1Label(mgr.performance, mgr.growthReadiness) : null;
         const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
 
-        const showManager = !!mgr?.resultsSentAt;
+        // The manager's side appears once the review is shared ahead of the
+        // 1:1 (or results are sent).
+        const showManager = !!(mgr?.sharedAt || mgr?.resultsSentAt);
 
-        const sections = [
-          {
-            id: "performance",
-            label: "Performance",
-            selfRating: self?.performance ?? null,
-            managerRating: showManager ? (mgr?.performance ?? null) : null,
-            selfText: [
-              { label: "Justification", value: self?.performanceJustification ?? null },
-              { label: "Achievements", value: self?.achievements ?? null },
-              { label: "Blockers", value: self?.blockers ?? null },
-            ],
-            managerText: showManager ? [
-              { label: "Evidence", value: mgr?.performanceEvidence ?? null },
-            ] : undefined,
-          },
-          ...(showManager ? [{
-            id: "growthReadiness",
-            label: "Growth Readiness",
-            selfRating: null,
-            managerRating: mgr?.growthReadiness ?? null,
-            labelFn: getGrowthReadinessLabel,
-            managerText: [
-              { label: "Evidence", value: mgr?.growthReadinessEvidence ?? null },
-            ],
-          }] : []),
-          {
-            id: "valCustomerFirst",
-            label: "Customer First",
-            selfRating: self?.valCustomerFirst ?? null,
-            managerRating: showManager ? (mgr?.valCustomerFirst ?? null) : null,
-          },
-          {
-            id: "valStepIntoArena",
-            label: "Step Into the Arena",
-            selfRating: self?.valStepIntoArena ?? null,
-            managerRating: showManager ? (mgr?.valStepIntoArena ?? null) : null,
-          },
-          {
-            id: "valFlockToProblems",
-            label: "Flock to Problems",
-            selfRating: self?.valFlockToProblems ?? null,
-            managerRating: showManager ? (mgr?.valFlockToProblems ?? null) : null,
-          },
-          {
-            id: "valGiveEnergy",
-            label: "Give Energy",
-            selfRating: self?.valGiveEnergy ?? null,
-            managerRating: showManager ? (mgr?.valGiveEnergy ?? null) : null,
-          },
-          {
-            id: "values",
-            label: "Values Reflection",
-            selfRating: null,
-            managerRating: null,
-            selfText: [
-              { label: "Reflection", value: self?.valuesReflection ?? null },
-            ],
-            managerText: showManager ? [
-              { label: "Evidence", value: mgr?.valuesEvidence ?? null },
-            ] : undefined,
-          },
-          {
-            id: "engagement",
-            label: "Engagement",
-            selfRating: self?.engagement ?? null,
-            managerRating: showManager ? (mgr?.engagement ?? null) : null,
-            selfText: [
-              { label: "Driver", value: self?.engagementDriver ?? null },
-              { label: "Support Needed", value: self?.supportNeeded ?? null },
-            ],
-            managerText: showManager ? [
-              { label: "Evidence", value: mgr?.engagementEvidence ?? null },
-            ] : undefined,
-          },
-        ];
+        // Rows come from the shared section config; the manager side is
+        // blank until results are shared.
+        const sections = buildComparisonRows(self, mgr, { showManager });
 
         return (
           <Card key={cycle.id}>
@@ -302,9 +285,16 @@ export default function MyResultsPage() {
                     <Badge variant="success">Self-Assessment Submitted</Badge>
                   )}
                   {mgr?.resultsSentAt ? (
-                    <Badge variant="success">Results Shared</Badge>
+                    <Badge variant="success">Review Complete</Badge>
+                  ) : mgr?.sharedAt ? (
+                    <Badge variant="navy">Shared ahead of 1:1</Badge>
                   ) : (
                     <Badge variant="warning">Pending Manager Review</Badge>
+                  )}
+                  {showManager && mgr?.editedSinceShared && (
+                    <span title="Your manager changed a rating or comment after sharing">
+                      <Badge variant="warning">Updated since shared</Badge>
+                    </span>
                   )}
                 </div>
               </div>
@@ -339,35 +329,24 @@ export default function MyResultsPage() {
                 </div>
               )}
 
-              {self?.submittedAt && (self.learning || self.goalsNextMonth) && (
-                <div>
-                  <h3 className="eyebrow mb-3">Additional Context</h3>
-                  <div className="space-y-3">
-                    {self.learning && (
-                      <div>
-                        <p className="eyebrow mb-1">Learning</p>
-                        <p className="text-sm text-ink-2">{self.learning}</p>
-                      </div>
-                    )}
-                    {self.goalsNextMonth && (
-                      <div>
-                        <p className="eyebrow mb-1">Goals for Next Quarter</p>
-                        <p className="text-sm text-ink-2">{self.goalsNextMonth}</p>
-                      </div>
-                    )}
-                  </div>
+              {showManager && mgr?.meeting?.completedAt && (
+                <div className="rounded-lg border border-success/40 bg-success/10 p-4">
+                  <h3 className="eyebrow mb-1">From your 1:1</h3>
+                  <p className="text-xs text-ink-3 mb-2">
+                    Held <span className="mono tnum">{new Date(mgr.meeting.completedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" })}</span>
+                  </p>
+                  {mgr.meeting.notes ? (
+                    <p className="text-sm text-ink whitespace-pre-wrap">{mgr.meeting.notes}</p>
+                  ) : (
+                    <p className="text-sm text-ink-3 italic">No notes were recorded.</p>
+                  )}
+                  <p className="text-xs text-ink-3 mt-2">
+                    Actions agreed in the meeting are on your <Link href="/tasks" className="text-magenta hover:underline">Tasks</Link> page.
+                  </p>
                 </div>
               )}
 
-              {showManager && mgr?.notes && (
-                <div>
-                  <h3 className="eyebrow mb-3">
-                    Manager Notes
-                    <span className="text-xs font-normal text-ink-3 ml-2 normal-case tracking-normal">by {mgr.manager.name}</span>
-                  </h3>
-                  <p className="text-sm text-ink-2">{mgr.notes}</p>
-                </div>
-              )}
+              {self?.id && self?.submittedAt && <SelfAuditTrail selfAssessmentId={self.id} />}
             </CardContent>
           </Card>
         );

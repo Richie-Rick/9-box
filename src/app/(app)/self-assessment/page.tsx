@@ -3,12 +3,13 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { StepForm, RatingStep, TextStep, MultiRatingStep, type StepConfig } from "@/components/assessments/step-form";
-import { assessmentPrompts } from "@/lib/assessment-prompts";
+import { AssessmentForm, buildFormSections, initialValues, type FormSection } from "@/components/assessments/assessment-form";
+import { formatCyclePeriod } from "@/lib/utils";
 import { GoalsPanel } from "@/components/assessments/goals-panel";
-import { ReviewNotesPanel } from "@/components/assessments/review-notes-panel";
+import { ActionsEditor } from "@/components/meetings/actions-editor";
 import { SelfGoalsEditor } from "@/components/assessments/self-goals-editor";
 import { PageHeader } from "@/components/ui/page-header";
+import { Button } from "@/components/ui/button";
 
 export default function SelfAssessmentPage() {
   const { data: session } = useSession();
@@ -20,7 +21,15 @@ export default function SelfAssessmentPage() {
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
-  const [prefilled, setPrefilled] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Last cycle's stated goals, shown read-only as context for this one.
+  const [previous, setPrevious] = useState<{
+    quarter: number | null;
+    month: number | null;
+    year: number;
+    goalsNextMonth: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!cycleId) return;
@@ -31,24 +40,8 @@ export default function SelfAssessmentPage() {
           const a = data[0];
           setAssessmentId(a.id);
           setIsSubmitted(!!a.submittedAt);
-          const prev = a._prefilled;
-          setValues({
-            performance: a.performance,
-            performanceJustification: a.performanceJustification || prev?.performanceJustification || "",
-            achievements: a.achievements || prev?.achievements || "",
-            blockers: a.blockers || prev?.blockers || "",
-            learning: a.learning || prev?.learning || "",
-            valCustomerFirst: a.valCustomerFirst,
-            valStepIntoArena: a.valStepIntoArena,
-            valFlockToProblems: a.valFlockToProblems,
-            valGiveEnergy: a.valGiveEnergy,
-            valuesReflection: a.valuesReflection || prev?.valuesReflection || "",
-            engagement: a.engagement,
-            engagementDriver: a.engagementDriver || prev?.engagementDriver || "",
-            supportNeeded: a.supportNeeded || prev?.supportNeeded || "",
-            goalsNextMonth: a.goalsNextMonth || prev?.goalsNextMonth || "",
-          });
-          if (prev) setPrefilled(true);
+          setValues(initialValues("self", a));
+          setPrevious(a._previous ?? null);
         }
       });
   }, [cycleId]);
@@ -62,6 +55,7 @@ export default function SelfAssessmentPage() {
 
     if (submit) setSubmitting(true);
     else setSaving(true);
+    setError(null);
 
     try {
       const res = await fetch("/api/assessments/self", {
@@ -69,10 +63,15 @@ export default function SelfAssessmentPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `Failed to ${submit ? "submit" : "save"} (${res.status})`);
+        return;
+      }
       setAssessmentId(data.id);
       if (submit) {
         setIsSubmitted(true);
+        setEditing(false);
         // Always return to the dashboard after submitting.
         router.push("/dashboard");
       }
@@ -82,76 +81,60 @@ export default function SelfAssessmentPage() {
     }
   }, [cycleId, values]);
 
-  const steps: StepConfig[] = [
-    {
-      id: "performance",
-      title: "How would you rate your performance this quarter?",
-      description: "Consider your output, quality of work, and meeting of objectives.",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.performance?.self} />,
-    },
-    {
-      id: "performanceJustification",
-      title: "What evidence supports your performance rating?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Describe your key contributions and results..." />,
-    },
-    {
-      id: "achievements",
-      title: "What are your key achievements this quarter?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="List your main accomplishments..." />,
-    },
-    {
-      id: "blockers",
-      title: "What blockers or challenges did you face?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Describe any obstacles that impacted your work..." />,
-    },
-    {
-      id: "learning",
-      title: "What did you learn this quarter?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Skills developed, insights gained..." />,
-    },
-    {
-      id: "values",
-      title: "Values Alignment",
-      description: "Rate yourself against each value, then share overall reflections for the section.",
-      renderMulti: (vals, onChange) => (
-        <MultiRatingStep
-          values={vals}
-          onChange={onChange}
-          commentId="valuesReflection"
-          commentLabel="Values Reflection"
-          commentPlaceholder="Give specific examples of how you demonstrated Visory values..."
-          items={[
-            { id: "valCustomerFirst", label: "Customer First", prompts: assessmentPrompts.valCustomerFirst?.self },
-            { id: "valStepIntoArena", label: "Step Into the Arena", prompts: assessmentPrompts.valStepIntoArena?.self },
-            { id: "valFlockToProblems", label: "Flock to Problems", prompts: assessmentPrompts.valFlockToProblems?.self },
-            { id: "valGiveEnergy", label: "Give Energy", prompts: assessmentPrompts.valGiveEnergy?.self },
-          ]}
-        />
-      ),
-    },
-    {
-      id: "engagement",
-      title: "How engaged do you feel at work?",
-      description: "Consider your motivation, energy, and connection to the team.",
-      render: (val, onChange) => <RatingStep value={val as number | null} onChange={onChange as (v: number) => void} prompts={assessmentPrompts.engagement?.self} />,
-    },
-    {
-      id: "engagementDriver",
-      title: "What's driving your engagement level?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="What energises or drains you at work..." />,
-    },
-    {
-      id: "supportNeeded",
-      title: "What support do you need from your manager?",
-      render: (val, onChange) => <TextStep value={val as string} onChange={onChange as (v: string) => void} placeholder="Resources, guidance, feedback..." />,
-    },
-    {
-      id: "goals",
-      title: "What are your goals for next quarter?",
-      description: "Add each goal individually. They are saved to your profile and tracked over time.",
-      render: () => (session?.user?.id ? <SelfGoalsEditor employeeId={session.user.id} /> : null),
-    },
-  ];
+  // Re-open a submitted self-assessment for editing via the unlock endpoint.
+  const unlock = useCallback(async () => {
+    if (!assessmentId) return;
+    const res = await fetch("/api/assessments/self/unlock", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assessmentId }),
+    });
+    if (res.ok) setEditing(true);
+  }, [assessmentId]);
+
+  // Locked after submit until the employee re-opens it for editing. While
+  // locked the form is read-only.
+  const locked = isSubmitted && !editing;
+  const userId = session?.user?.id;
+
+  const sections: FormSection[] = buildFormSections("self", "").map((section) => {
+    if (section.id === "performance" && userId) {
+      // Mirror what the manager sees under their Performance section: the
+      // goals & key-metrics panel plus the tasks/actions list. (No review
+      // notes — those stay manager-only, as on the manager flow.)
+      return {
+        ...section,
+        footer: (
+          <>
+            <GoalsPanel employeeId={userId} cycleId={cycleId} editable={!locked} showGoalNotes={false} />
+            <ActionsEditor
+              employeeId={userId}
+              readOnly
+              assigneeOptions={[{ id: userId, name: session?.user?.name || "You" }]}
+            />
+          </>
+        ),
+      };
+    }
+    if (section.id === "ahead" && userId) {
+      return {
+        ...section,
+        intro: "Add each goal individually. They are saved to your profile and tracked over time.",
+        footer: (
+          <>
+            {previous && (
+              <div className="rounded-lg bg-paper-2 border border-line p-4">
+                <p className="eyebrow mb-1">What you set out to do in {formatCyclePeriod(previous)}</p>
+                <p className="text-sm text-ink-2 whitespace-pre-wrap">{previous.goalsNextMonth}</p>
+              </div>
+            )}
+            <SelfGoalsEditor employeeId={userId} />
+          </>
+        ),
+      };
+    }
+    return section;
+  });
 
   if (!cycleId) {
     return (
@@ -166,30 +149,29 @@ export default function SelfAssessmentPage() {
       <PageHeader
         eyebrow="Self-Assessment"
         title={<>Your <em>reflection.</em></>}
-        sub="Take your time. Your responses auto-save as drafts."
+        sub="Take your time. Save a draft whenever you like; your manager only sees it once you submit."
       />
-      {prefilled && (
-        <div className="rounded-lg bg-paper-2 border border-line p-3 mb-6 max-w-2xl mx-auto">
+      {isSubmitted && !editing && (
+        <div className="max-w-2xl mx-auto mb-6 flex items-center justify-between gap-3 rounded-lg bg-paper-2 border border-amber/40 p-4">
           <p className="text-sm text-ink-2">
-            Text responses have been pre-filled from last quarter. Review and update as needed.
+            This assessment has been submitted. You can re-open it to edit — changes are recorded in the audit log.
           </p>
+          <Button size="sm" variant="magenta" className="shrink-0" disabled={!assessmentId} onClick={unlock}>
+            Edit assessment
+          </Button>
         </div>
       )}
-      {session?.user?.id && <GoalsPanel employeeId={session.user.id} />}
-      {session?.user?.id && cycleId && (
-        <div className="max-w-2xl mx-auto mb-6">
-          <ReviewNotesPanel employeeId={session.user.id} cycleId={cycleId} currentUserId={session.user.id} />
-        </div>
-      )}
-      <StepForm
-        steps={steps}
+      <AssessmentForm
+        sections={sections}
         values={values}
         onChange={(key, val) => setValues((v) => ({ ...v, [key]: val }))}
         onSave={() => save(false)}
         onSubmit={() => save(true)}
         saving={saving}
         submitting={submitting}
-        isSubmitted={isSubmitted}
+        isSubmitted={locked}
+        disabled={locked}
+        error={error}
       />
     </div>
   );

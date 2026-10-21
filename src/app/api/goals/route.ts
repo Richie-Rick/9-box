@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isManager } from "@/lib/permissions";
+import { canManageEmployee } from "@/lib/permissions";
 import { dbErrorResponse } from "@/lib/api-error";
 
 export async function GET(request: Request) {
@@ -18,11 +18,12 @@ export async function GET(request: Request) {
   }
 
   const isOwn = employeeId === session.user.id;
-  if (!isOwn && !isManager(session.user.role)) {
+  if (!isOwn && !(await canManageEmployee(session.user.id, session.user.role, employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // When a cycleId is supplied, include this cycle's progress update on each goal.
+  // When a cycleId is supplied, include this cycle's progress updates on each
+  // goal (one per author: the employee's and the manager's).
   const cycleId = searchParams.get("cycleId");
 
   const goals = await prisma.goal.findMany({
@@ -30,7 +31,11 @@ export async function GET(request: Request) {
     include: {
       createdBy: { select: { id: true, name: true } },
       updates: cycleId
-        ? { where: { cycleId }, orderBy: { createdAt: "desc" }, take: 1 }
+        ? {
+            where: { cycleId },
+            include: { createdBy: { select: { id: true, name: true } } },
+            orderBy: { createdAt: "asc" },
+          }
         : false,
     },
     orderBy: [{ status: "asc" }, { createdAt: "desc" }],
@@ -51,9 +56,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "employeeId and title are required" }, { status: 400 });
   }
 
-  // Employees may set their own goals; managers may set goals for anyone.
+  // Employees may set their own goals; managers may set goals for their reports.
   const isOwnGoal = employeeId === session.user.id;
-  if (!isOwnGoal && !isManager(session.user.role)) {
+  if (!isOwnGoal && !(await canManageEmployee(session.user.id, session.user.role, employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -93,8 +98,14 @@ export async function PATCH(request: Request) {
 
   const isCreator = goal.createdById === session.user.id;
   const isOwner = goal.employeeId === session.user.id;
-  if (!isCreator && !isOwner && !isManager(session.user.role)) {
+  if (!isCreator && !isOwner && !(await canManageEmployee(session.user.id, session.user.role, goal.employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Role-set goals are managed from Admin → Roles & Templates; only an admin
+  // may retitle or cancel one here (progress still flows through goal updates).
+  if (goal.templateId && session.user.role !== "ADMIN" && (title !== undefined || status === "CANCELLED")) {
+    return NextResponse.json({ error: "This goal is set by the job role. Ask an admin to change it under Roles & Templates." }, { status: 400 });
   }
 
   const data: Record<string, unknown> = {};

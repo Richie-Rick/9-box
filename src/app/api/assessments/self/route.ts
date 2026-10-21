@@ -1,7 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { comparePeriodDesc } from "@/lib/utils";
+import { logAudit, diffFields } from "@/lib/audit";
+import { SELF_ASSESSMENT_FIELDS, SELF_REQUIRED_FIELDS, pickFields, missingRequired } from "@/lib/assessment-fields";
+import { notifySelfSubmitted } from "@/lib/notifications";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -39,17 +42,15 @@ export async function GET(request: Request) {
       const prev = await prisma.selfAssessment.findUnique({
         where: { cycleId_employeeId: { cycleId: previousCycle.id, employeeId: session.user.id } },
       });
-      if (prev?.submittedAt) {
+      // Only last cycle's stated goals come forward, as read-only context.
+      // Achievements, blockers and the rest must be written fresh each cycle.
+      if (prev?.submittedAt && prev.goalsNextMonth) {
         return NextResponse.json([{
           ...assessments[0],
-          _prefilled: {
-            performanceJustification: prev.performanceJustification,
-            achievements: prev.achievements,
-            blockers: prev.blockers,
-            learning: prev.learning,
-            valuesReflection: prev.valuesReflection,
-            engagementDriver: prev.engagementDriver,
-            supportNeeded: prev.supportNeeded,
+          _previous: {
+            quarter: previousCycle.quarter,
+            month: previousCycle.month,
+            year: previousCycle.year,
             goalsNextMonth: prev.goalsNextMonth,
           },
         }]);
@@ -73,26 +74,89 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "cycleId is required" }, { status: 400 });
   }
 
-  // Verify cycle is open
-  const cycle = await prisma.assessmentCycle.findUnique({ where: { id: cycleId } });
-  if (!cycle || cycle.status !== "OPEN") {
-    return NextResponse.json({ error: "Cycle is not open" }, { status: 400 });
-  }
-
-  const assessment = await prisma.selfAssessment.upsert({
+  const existing = await prisma.selfAssessment.findUnique({
     where: {
-      cycleId_employeeId: {
-        cycleId,
-        employeeId: session.user.id,
-      },
-    },
-    update: { ...data, updatedAt: new Date() },
-    create: {
-      cycleId,
-      employeeId: session.user.id,
-      ...data,
+      cycleId_employeeId: { cycleId, employeeId: session.user.id },
     },
   });
+
+  // The cycle must be OPEN to CREATE a brand-new self-assessment. An existing
+  // self-assessment can be edited at any point — even after the cycle is closed.
+  if (!existing) {
+    const cycle = await prisma.assessmentCycle.findUnique({ where: { id: cycleId } });
+    if (!cycle || cycle.status !== "OPEN") {
+      return NextResponse.json({ error: "Cycle is not open" }, { status: 400 });
+    }
+  }
+
+  // Only whitelisted content fields are written. submittedAt is stamped
+  // server-side: set once when the client submits, never cleared or
+  // overwritten with a client-supplied timestamp.
+  const content = pickFields(data, SELF_ASSESSMENT_FIELDS);
+  const wantsSubmit = Boolean(data.submittedAt);
+
+  // Every rating must be set before the self-assessment counts as submitted.
+  if (wantsSubmit && !existing?.submittedAt) {
+    const missing = missingRequired({ ...(existing ?? {}), ...content }, SELF_REQUIRED_FIELDS);
+    if (missing.length > 0) {
+      return NextResponse.json(
+        { error: `Ratings still needed: ${missing.join(", ")}`, missing },
+        { status: 400 }
+      );
+    }
+  }
+
+  const assessment = existing
+    ? await prisma.selfAssessment.update({
+        where: { id: existing.id },
+        data: {
+          ...content,
+          ...(wantsSubmit && !existing.submittedAt ? { submittedAt: new Date() } : {}),
+          updatedAt: new Date(),
+        },
+      })
+    : await prisma.selfAssessment.create({
+        data: {
+          cycleId,
+          employeeId: session.user.id,
+          ...content,
+          ...(wantsSubmit ? { submittedAt: new Date() } : {}),
+        },
+      });
+
+  // Editing an already-completed (submitted) self-assessment is allowed but
+  // recorded in the audit trail.
+  if (existing?.submittedAt) {
+    const changes = diffFields(
+      existing as unknown as Record<string, unknown>,
+      assessment as unknown as Record<string, unknown>,
+      SELF_ASSESSMENT_FIELDS
+    );
+    const changed = Object.keys(changes);
+    if (changed.length > 0) {
+      const before: Record<string, unknown> = {};
+      const after: Record<string, unknown> = {};
+      for (const f of changed) {
+        before[f] = changes[f].from;
+        after[f] = changes[f].to;
+      }
+      await logAudit({
+        actorId: session.user.id,
+        action: "assessment.edit",
+        entityType: "SelfAssessment",
+        entityId: assessment.id,
+        summary: `Edited after completion: ${changed.join(", ")}`,
+        before,
+        after,
+      });
+    }
+  }
+
+  // First submission: let the manager know (sent after the response).
+  if (assessment.submittedAt && !existing?.submittedAt) {
+    const id = assessment.id;
+    after(() => notifySelfSubmitted(id).catch((err) => console.error("self_submitted email failed", err)));
+  }
 
   // Check if both assessments are now complete
   let bothComplete = false;

@@ -7,7 +7,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { KanbanBoard } from "@/components/meetings/kanban-board";
 import type { CycleData, TeamMemberStatus } from "@/types";
-import { formatCyclePeriod, comparePeriodDesc } from "@/lib/utils";
+import { formatCyclePeriod, comparePeriodDesc, pickDefaultCycle } from "@/lib/utils";
 
 export default function TeamCyclesPage() {
   const { data: session } = useSession();
@@ -31,8 +31,8 @@ export default function TeamCyclesPage() {
       .then((cs: CycleData[]) => {
         const sorted = [...cs].sort(comparePeriodDesc);
         setCycles(sorted);
-        const current = sorted.find((c) => c.status === "OPEN") || sorted[0];
-        setSelectedId(current?.id ?? "");
+        // Default to the most recently opened cycle (matches the dashboard).
+        setSelectedId(pickDefaultCycle(sorted)?.id ?? "");
         setLoading(false);
       })
       .catch(() => setLoading(false));

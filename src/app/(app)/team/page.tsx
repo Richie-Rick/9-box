@@ -21,6 +21,7 @@ interface TeamMember {
   meetingStatus?: string;
   meetingStarted?: boolean;
   managerAssessmentId?: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
 }
 
@@ -129,6 +130,7 @@ export default function MyTeamPage() {
                   <Badge variant={statusVariant(member.managerAssessmentStatus)}>
                     {statusLabel(member.managerAssessmentStatus)}
                   </Badge>
+                  {member.sharedAt && !member.resultsSentAt && <Badge variant="navy">Shared</Badge>}
                   {member.resultsSentAt && <Badge variant="success">Results Sent</Badge>}
                 </div>
 
@@ -136,12 +138,13 @@ export default function MyTeamPage() {
                   <Button size="sm" variant="secondary" onClick={() => router.push(`/team/${member.id}`)}>
                     View Profile
                   </Button>
-                  {cycle && member.managerAssessmentStatus !== "submitted" && (
+                  {cycle && (
                     <Button
                       size="sm"
+                      variant={member.managerAssessmentStatus === "submitted" ? "secondary" : "primary"}
                       onClick={() => router.push(`/assess/${member.id}?cycleId=${cycle.id}`)}
                     >
-                      Assess
+                      {member.managerAssessmentStatus === "submitted" ? "Edit Review" : "Assess"}
                     </Button>
                   )}
                   {cycle && bothSubmitted && (

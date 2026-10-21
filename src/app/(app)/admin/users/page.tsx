@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,7 @@ interface UserData {
   isActive: boolean;
   managerId: string | null;
   startDate: string | null;
+  jobRoleId?: string | null;
   manager: { id: string; name: string } | null;
 }
 
@@ -46,6 +47,22 @@ const INPUT_SM_CLASS =
 export default function AdminUsersPage() {
   const { data: session } = useSession();
   const router = useRouter();
+  // List filters live in the URL so a filtered view can be bookmarked or shared.
+  const searchParams = useSearchParams();
+  const filters = {
+    q: searchParams.get("q") ?? "",
+    role: searchParams.get("role") ?? "",
+    team: searchParams.get("team") ?? "",
+    manager: searchParams.get("manager") ?? "",
+    status: searchParams.get("status") ?? "",
+    sort: searchParams.get("sort") ?? "name",
+  };
+  function setFilter(key: keyof typeof filters, value: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) params.set(key, value);
+    else params.delete(key);
+    router.replace(`/admin/users${params.size ? `?${params}` : ""}`, { scroll: false });
+  }
   const [users, setUsers] = useState<UserData[]>([]);
   const [invitations, setInvitations] = useState<InvitationData[]>([]);
   const [showInviteForm, setShowInviteForm] = useState(false);
@@ -232,6 +249,29 @@ export default function AdminUsersPage() {
 
   const managers = users.filter((u) => ["MANAGER", "AREA_LEAD", "LEADERSHIP", "ADMIN"].includes(u.role));
   const pendingInvitations = invitations.filter((i) => !i.usedAt);
+  const teamOptions = [...new Set(users.map((u) => u.team).filter(Boolean) as string[])].sort();
+  // Job titles double as job roles (managed under Admin → Roles & Templates).
+  const titleOptions = [...new Set(users.map((u) => u.jobTitle).filter(Boolean) as string[])].sort();
+
+  const q = filters.q.trim().toLowerCase();
+  const visibleUsers = users
+    .filter((u) => {
+      if (q && !u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false;
+      if (filters.role && u.role !== filters.role) return false;
+      if (filters.team && (u.team ?? "") !== filters.team) return false;
+      if (filters.manager && (u.managerId ?? "") !== filters.manager) return false;
+      if (filters.status === "active" && !u.isActive) return false;
+      if (filters.status === "inactive" && u.isActive) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      if (filters.sort === "role") return a.role.localeCompare(b.role) || a.name.localeCompare(b.name);
+      if (filters.sort === "team") return (a.team ?? "").localeCompare(b.team ?? "") || a.name.localeCompare(b.name);
+      if (filters.sort === "manager") return (a.manager?.name ?? "").localeCompare(b.manager?.name ?? "") || a.name.localeCompare(b.name);
+      if (filters.sort === "start") return (a.startDate ?? "").localeCompare(b.startDate ?? "") || a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name);
+    });
+  const hasFilters = !!(filters.q || filters.role || filters.team || filters.manager || filters.status);
 
   return (
     <div className="space-y-6">
@@ -282,7 +322,8 @@ export default function AdminUsersPage() {
                   required
                 />
                 <Input
-                  label="Job Title"
+                  label="Job Title (role)"
+                  list="job-role-options"
                   value={newInvite.jobTitle}
                   onChange={(e) => setNewInvite((u) => ({ ...u, jobTitle: e.target.value }))}
                   placeholder="e.g. Senior Developer"
@@ -409,6 +450,10 @@ export default function AdminUsersPage() {
         </Card>
       )}
 
+      <datalist id="job-role-options">
+        {titleOptions.map((t) => <option key={t} value={t} />)}
+      </datalist>
+
       {/* Pending Invitations */}
       {pendingInvitations.length > 0 && (
         <Card className="p-0 overflow-hidden">
@@ -459,8 +504,50 @@ export default function AdminUsersPage() {
       {/* Existing Users */}
       <Card className="p-0 overflow-hidden">
         <CardHeader className="px-5 pt-5">
-          <CardTitle>Active <em>users.</em></CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle>All <em>users.</em></CardTitle>
+            <Badge variant="slate" className="mono tnum">{visibleUsers.length}{hasFilters ? ` of ${users.length}` : ""}</Badge>
+          </div>
         </CardHeader>
+        <div className="px-5 pb-3 flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            value={filters.q}
+            onChange={(e) => setFilter("q", e.target.value)}
+            placeholder="Search name or email"
+            aria-label="Search users"
+            className={`${INPUT_SM_CLASS} w-48`}
+          />
+          <select value={filters.role} onChange={(e) => setFilter("role", e.target.value)} className={SELECT_SM_CLASS} aria-label="Filter by role">
+            <option value="">All roles</option>
+            {ROLES.map((r) => <option key={r} value={r}>{getRoleDisplayName(r)}</option>)}
+          </select>
+          <select value={filters.team} onChange={(e) => setFilter("team", e.target.value)} className={SELECT_SM_CLASS} aria-label="Filter by team">
+            <option value="">All teams</option>
+            {teamOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+          <select value={filters.manager} onChange={(e) => setFilter("manager", e.target.value)} className={SELECT_SM_CLASS} aria-label="Filter by manager">
+            <option value="">All managers</option>
+            {managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <select value={filters.status} onChange={(e) => setFilter("status", e.target.value)} className={SELECT_SM_CLASS} aria-label="Filter by status">
+            <option value="">Active & inactive</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+          <select value={filters.sort} onChange={(e) => setFilter("sort", e.target.value)} className={SELECT_SM_CLASS} aria-label="Sort">
+            <option value="name">Sort: name</option>
+            <option value="role">Sort: role</option>
+            <option value="team">Sort: team</option>
+            <option value="manager">Sort: manager</option>
+            <option value="start">Sort: start date</option>
+          </select>
+          {hasFilters && (
+            <Button size="sm" variant="ghost" onClick={() => router.replace("/admin/users", { scroll: false })}>
+              Clear
+            </Button>
+          )}
+        </div>
         <div
           className="dt-head grid gap-3 px-5 py-2.5"
           style={{ gridTemplateColumns: "1fr auto" }}
@@ -468,7 +555,10 @@ export default function AdminUsersPage() {
           <span>User</span>
           <span className="text-right">Manage</span>
         </div>
-        {users.map((user) => (
+        {visibleUsers.length === 0 && (
+          <p className="py-6 text-center text-sm text-ink-3">No users match these filters.</p>
+        )}
+        {visibleUsers.map((user) => (
           <div key={user.id} className="dt-row px-5 py-3">
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
               <div className="flex-1">
@@ -494,9 +584,11 @@ export default function AdminUsersPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <input
+                  list="job-role-options"
                   defaultValue={user.jobTitle || ""}
                   onBlur={(e) => { if (e.target.value !== (user.jobTitle || "")) updateUser(user.id, { jobTitle: e.target.value }); }}
-                  placeholder="Job title"
+                  placeholder="Job title (role)"
+                  title="Job title doubles as the job role; role-set metrics and goals follow it"
                   className={`${INPUT_SM_CLASS} w-28`}
                 />
                 <input

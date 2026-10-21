@@ -81,6 +81,10 @@ model User {
   passwordHash String
   jobTitle     String?
   team         String?
+  // The job role (resolved from jobTitle) whose role-set metrics and goals
+  // flow through to this person.
+  jobRoleId    String?
+  jobRole      JobRole? @relation(fields: [jobRoleId], references: [id], onDelete: SetNull)
   role         Role     @default(EMPLOYEE)
   managerId    String?
   manager      User?    @relation("ManagerReports", fields: [managerId], references: [id])
@@ -110,9 +114,68 @@ model User {
   passwordResetTokens        PasswordResetToken[]
   reviewNotesAbout           ReviewNote[]       @relation("ReviewNoteEmployee")
   reviewNotesAuthored        ReviewNote[]       @relation("ReviewNoteAuthor")
+  metricTemplatesCreated     MetricTemplate[]   @relation("MetricTemplateCreator")
+  goalTemplatesCreated       GoalTemplate[]     @relation("GoalTemplateCreator")
+  notifications              NotificationLog[]
 
   @@index([managerId])
   @@index([role])
+  @@index([jobRoleId])
+}
+
+// A job role, seeded from job titles. Admins attach metric and goal
+// templates to it; those are materialised as "role-set" key metrics and
+// goals for everyone holding the role.
+model JobRole {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users           User[]
+  metricTemplates MetricTemplate[]
+  goalTemplates   GoalTemplate[]
+}
+
+model MetricTemplate {
+  id          String   @id @default(cuid())
+  jobRoleId   String
+  jobRole     JobRole  @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  // Optional: only people in this team get the metric.
+  team        String?
+  name        String
+  target      String
+  unit        String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdById String
+  createdBy   User     @relation("MetricTemplateCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  metrics KeyMetric[]
+
+  @@index([jobRoleId])
+}
+
+model GoalTemplate {
+  id            String   @id @default(cuid())
+  jobRoleId     String
+  jobRole       JobRole  @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  team          String?
+  title         String
+  description   String?
+  // Due this many days after the goal is created for a person.
+  dueOffsetDays Int?
+  isActive      Boolean  @default(true)
+  createdById   String
+  createdBy     User     @relation("GoalTemplateCreator", fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  goals Goal[]
+
+  @@index([jobRoleId])
 }
 
 model Invitation {
@@ -140,6 +203,11 @@ model AssessmentCycle {
   quarter   Int?
   year      Int
   status    CycleStatus @default(OPEN)
+  // Milestone due dates, chosen by the admin when the cycle is created
+  // (defaulting from the period). Null falls back to the computed dates.
+  readyToMeetDueAt DateTime?
+  meetingDueAt     DateTime?
+  resultsDueAt     DateTime?
   createdAt DateTime    @default(now())
 
   managerAssessments ManagerAssessment[]
@@ -170,9 +238,26 @@ model ManagerAssessment {
   valuesEvidence      String?
   engagement          Int?
   engagementEvidence  String?
+  // Manager-side counterparts to the employee's achievements, blockers and
+  // support needed, so every section reads as a conversation.
+  achievementsObserved String?
+  blockersToRemove     String?
+  supportCommitted     String?
+  // The manager's replies to the employee's comments, written after the
+  // self-assessment is revealed section by section (rate blind, then respond).
+  responsePerformance  String?
+  responseGrowth       String?
+  responseValues       String?
+  responseEngagement   String?
+  // Manager ratings as they stood when each section's self-assessment was
+  // first revealed, so later adjustments can be compared against them.
+  initialRatings       Json?
   trend               TrendDirection?
   notes               String?
   submittedAt         DateTime?
+  // Shared with the employee ahead of the 1:1 (ratings and comments visible).
+  sharedAt            DateTime?
+  // Close-out after the meeting; locks the assessment.
   resultsSentAt       DateTime?
   meetingStatus       MeetingStatus @default(NOT_READY)
   meeting             Meeting?
@@ -196,6 +281,9 @@ model SelfAssessment {
   achievements             String?
   blockers                 String?
   learning                 String?
+  // Employee's own view of growth readiness, mirrored against the manager's.
+  growthReadiness          Int?
+  growthReflection         String?
   valCustomerFirst         Int?
   valStepIntoArena         Int?
   valFlockToProblems       Int?
@@ -241,12 +329,16 @@ model Goal {
   description String?
   dueDate     DateTime?
   status      GoalStatus @default(ACTIVE)
+  // Set when the goal was created from a role-level template ("role-set").
+  templateId  String?
+  template    GoalTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   updates     GoalUpdate[]
 
   @@index([employeeId])
   @@index([createdById])
+  @@index([templateId])
 }
 
 model KeyMetric {
@@ -259,12 +351,16 @@ model KeyMetric {
   target      String
   unit        String?
   notes       String?
+  // Set when the metric was created from a role-level template ("role-set").
+  templateId  String?
+  template    MetricTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   results     MetricResult[]
 
   @@index([employeeId])
   @@index([createdById])
+  @@index([templateId])
 }
 
 model Meeting {
@@ -435,7 +531,9 @@ model GoalUpdate {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
-  @@unique([goalId, cycleId])
+  // One update per author per cycle, so the employee and manager each keep
+  // their own view rather than overwriting each other.
+  @@unique([goalId, cycleId, createdById])
   @@index([goalId])
   @@index([cycleId])
 }
@@ -449,6 +547,9 @@ model MetricResult {
   cycle       AssessmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   actual      String
   note        String?
+  // Hit or missed, as judged by whoever recorded the result; null = unsure.
+  // Lets Analysis compare performance ratings against metric outcomes.
+  achieved    Boolean?
   createdById String
   createdBy   User            @relation("MetricResultCreator", fields: [createdById], references: [id])
   createdAt   DateTime        @default(now())
@@ -457,4 +558,18 @@ model MetricResult {
   @@unique([keyMetricId, cycleId])
   @@index([keyMetricId])
   @@index([cycleId])
+}
+
+// One row per email sent, keyed by (user, type, ref) so a retried request
+// or a re-run cron never sends the same message twice.
+model NotificationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  refId     String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, type, refId])
+  @@index([userId])
 }

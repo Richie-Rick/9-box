@@ -3,24 +3,25 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Toggle } from "@/components/ui/toggle";
 import { PageHeader } from "@/components/ui/page-header";
-import { formatCyclePeriod, getCurrentPeriod } from "@/lib/utils";
+import { formatCyclePeriod, getCurrentPeriod, getCycleDueDates, cycleDueDates, toDateInput, formatDueDate } from "@/lib/utils";
 import { ChevronRight } from "lucide-react";
 import type { CycleData } from "@/types";
 
 interface CycleAssessment {
   id: string;
   employee: { id: string; name: string; email: string };
-  manager: { id: string; name: string };
+  manager: { id: string; name: string } | null;
   selfStatus: "pending" | "submitted";
   managerStatus: "pending" | "submitted";
   overallStatus: "pending" | "in_progress" | "ready_to_send" | "results_sent";
   createdAt: string;
   submittedAt: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
 }
 
@@ -59,6 +60,30 @@ function formatDate(dateStr: string | null) {
   });
 }
 
+const MILESTONE_FIELDS = [
+  { key: "readyToMeetDueAt", label: "Ready to Meet" },
+  { key: "meetingDueAt", label: "Meeting Complete" },
+  { key: "resultsDueAt", label: "Results Sent" },
+] as const;
+
+function defaultMilestones(quarter: number, year: number) {
+  const d = getCycleDueDates({ quarter, year });
+  return {
+    readyToMeetDueAt: toDateInput(d.readyToMeet),
+    meetingDueAt: toDateInput(d.meetingComplete),
+    resultsDueAt: toDateInput(d.resultsSent),
+  };
+}
+
+function datesOf(cycle: CycleData) {
+  const d = cycleDueDates(cycle);
+  return {
+    readyToMeetDueAt: toDateInput(d.readyToMeet),
+    meetingDueAt: toDateInput(d.meetingComplete),
+    resultsDueAt: toDateInput(d.resultsSent),
+  };
+}
+
 const SELECT_CLASS =
   "rounded-lg border border-line-2 bg-paper-2 px-3 py-2 text-sm text-ink outline-none transition-colors focus:border-magenta focus:ring-2 focus:ring-magenta/20";
 
@@ -72,11 +97,27 @@ export default function AdminCyclesPage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [deletingCycleId, setDeletingCycleId] = useState<string | null>(null);
 
-  // Create cycle form
+  // Create cycle form. Milestone dates default from the period and can be
+  // changed before creating (decision D2).
   const { quarter: curQuarter, year: curYear } = getCurrentPeriod();
   const [selectedQuarter, setSelectedQuarter] = useState(curQuarter);
   const [selectedYear, setSelectedYear] = useState(curYear);
+  const [showCreate, setShowCreate] = useState(false);
+  const [milestones, setMilestones] = useState(() => defaultMilestones(curQuarter, curYear));
   const [createError, setCreateError] = useState("");
+  // Editing an existing cycle's milestones
+  const [editDates, setEditDates] = useState<{ readyToMeetDueAt: string; meetingDueAt: string; resultsDueAt: string } | null>(null);
+  const [savingDates, setSavingDates] = useState(false);
+  const [datesError, setDatesError] = useState("");
+  // Reminders
+  const [sendingReminders, setSendingReminders] = useState(false);
+  const [reminderResult, setReminderResult] = useState<string | null>(null);
+
+  function selectPeriod(quarter: number, year: number) {
+    setSelectedQuarter(quarter);
+    setSelectedYear(year);
+    setMilestones(defaultMilestones(quarter, year));
+  }
 
   useEffect(() => {
     if (session?.user?.role !== "ADMIN") {
@@ -96,15 +137,60 @@ export default function AdminCyclesPage() {
     const res = await fetch("/api/cycles", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ quarter: selectedQuarter, year: selectedYear }),
+      body: JSON.stringify({ quarter: selectedQuarter, year: selectedYear, ...milestones }),
     });
     if (res.ok) {
+      setShowCreate(false);
       loadCycles();
     } else {
       const err = await res.json();
       setCreateError(err.error || "Failed to create cycle");
     }
     setCreating(false);
+  }
+
+  async function saveDates(cycleId: string) {
+    if (!editDates) return;
+    setSavingDates(true);
+    setDatesError("");
+    const res = await fetch("/api/cycles", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: cycleId, ...editDates }),
+    });
+    if (res.ok) {
+      setEditDates(null);
+      loadCycles();
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setDatesError(err.error || "Failed to save dates");
+    }
+    setSavingDates(false);
+  }
+
+  async function sendRemindersNow() {
+    setSendingReminders(true);
+    setReminderResult(null);
+    try {
+      const res = await fetch("/api/cron/reminders", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setReminderResult(data.error || "Failed to send reminders");
+      } else {
+        const totals = (data.cycles ?? []).reduce(
+          (sum: number, c: Record<string, number>) =>
+            sum + (c.selfReminders ?? 0) + (c.managerReminders ?? 0) + (c.shareReminders ?? 0) + (c.meetingReminders ?? 0) + (c.resultsReminders ?? 0),
+          0
+        );
+        setReminderResult(
+          data.cycles?.length === 0
+            ? "No open cycles — nothing to remind about."
+            : `${totals} reminder${totals === 1 ? "" : "s"} sent (people already reminded today are skipped).`
+        );
+      }
+    } finally {
+      setSendingReminders(false);
+    }
   }
 
   async function toggleCycle(id: string, currentStatus: string) {
@@ -134,6 +220,8 @@ export default function AdminCyclesPage() {
   }
 
   async function toggleExpand(cycleId: string) {
+    setEditDates(null);
+    setDatesError("");
     if (expandedCycleId === cycleId) {
       setExpandedCycleId(null);
       setCycleDetail(null);
@@ -152,6 +240,7 @@ export default function AdminCyclesPage() {
 
   // Generate year options: current year -1 to +1
   const yearOptions = [curYear - 1, curYear, curYear + 1];
+  const hasOpenCycle = cycles.some((c) => c.status === "OPEN");
 
   return (
     <div className="space-y-6">
@@ -161,44 +250,85 @@ export default function AdminCyclesPage() {
         sub="Manage quarterly assessment cycles."
         actions={
           <>
-            <select
-              value={selectedQuarter}
-              onChange={(e) => setSelectedQuarter(Number(e.target.value))}
-              className={SELECT_CLASS}
-            >
-              {QUARTERS.map((q) => (
-                <option key={q.value} value={q.value}>{q.label}</option>
-              ))}
-            </select>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className={SELECT_CLASS}
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <Button onClick={createCycle} disabled={creating} size="sm">
-              {creating ? "Creating..." : "Create Cycle"}
+            <Button variant="secondary" size="sm" onClick={sendRemindersNow} disabled={sendingReminders || !hasOpenCycle} title={hasOpenCycle ? "Email everyone with something outstanding in the open cycle" : "No open cycle"}>
+              {sendingReminders ? "Sending..." : "Send reminders now"}
+            </Button>
+            <Button onClick={() => setShowCreate((v) => !v)} size="sm">
+              {showCreate ? "Cancel" : "Create Cycle"}
             </Button>
           </>
         }
       />
 
-      {createError && (
-        <div className="rounded-lg bg-magenta-3 border border-magenta/25 p-3 text-sm text-magenta-2">
-          {createError}
+      {reminderResult && (
+        <div className="rounded-lg bg-paper-2 border border-line p-3 text-sm text-ink-2 flex justify-between gap-3">
+          <span>{reminderResult}</span>
+          <button type="button" className="underline underline-offset-2" onClick={() => setReminderResult(null)}>Dismiss</button>
         </div>
+      )}
+
+      {showCreate && (
+        <Card>
+          <div className="eyebrow mb-1">New cycle</div>
+          <h2 className="card-title mb-3">Period and milestones</h2>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="eyebrow">Quarter</span>
+              <select
+                value={selectedQuarter}
+                onChange={(e) => selectPeriod(Number(e.target.value), selectedYear)}
+                className={SELECT_CLASS}
+              >
+                {QUARTERS.map((q) => (
+                  <option key={q.value} value={q.value}>{q.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="eyebrow">Year</span>
+              <select
+                value={selectedYear}
+                onChange={(e) => selectPeriod(selectedQuarter, Number(e.target.value))}
+                className={SELECT_CLASS}
+              >
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </label>
+            {MILESTONE_FIELDS.map((m) => (
+              <label key={m.key} className="flex flex-col gap-1">
+                <span className="eyebrow">{m.label} by</span>
+                <input
+                  type="date"
+                  value={milestones[m.key]}
+                  onChange={(e) => setMilestones((prev) => ({ ...prev, [m.key]: e.target.value }))}
+                  className={`${SELECT_CLASS} mono tnum`}
+                />
+              </label>
+            ))}
+            <Button onClick={createCycle} disabled={creating} size="sm">
+              {creating ? "Creating..." : "Create Cycle"}
+            </Button>
+          </div>
+          <p className="tiny muted mt-2">
+            Dates default to the month after the quarter ends (Q2 a month later). Reminders go out Sunday and Monday mornings against these dates, and the Kanban timeline uses them.
+          </p>
+          {createError && (
+            <div className="mt-3 rounded-lg bg-magenta-3 border border-magenta/25 p-3 text-sm text-magenta-2">
+              {createError}
+            </div>
+          )}
+        </Card>
       )}
 
       <Card className="p-0 overflow-hidden">
         <div
           className="dt-head grid items-center gap-3 px-4 py-2.5"
-          style={{ gridTemplateColumns: "1fr 140px 120px auto" }}
+          style={{ gridTemplateColumns: "1fr 260px 120px auto" }}
         >
           <span>Period</span>
-          <span>Created</span>
+          <span>Milestones</span>
           <span>Status</span>
           <span className="text-right">Actions</span>
         </div>
@@ -207,7 +337,7 @@ export default function AdminCyclesPage() {
           <div key={cycle.id}>
             <div
               className="dt-row grid items-center gap-3 px-4 py-3"
-              style={{ gridTemplateColumns: "1fr 140px 120px auto" }}
+              style={{ gridTemplateColumns: "1fr 260px 120px auto" }}
             >
               <button
                 onClick={() => toggleExpand(cycle.id)}
@@ -220,7 +350,9 @@ export default function AdminCyclesPage() {
                 />
                 <span className="text-sm font-medium text-ink">{formatCyclePeriod(cycle)}</span>
               </button>
-              <span className="mono tnum text-xs text-ink-3">{formatDate(cycle.createdAt)}</span>
+              <span className="mono tnum text-xs text-ink-3" title="Ready to Meet · Meeting Complete · Results Sent">
+                {(() => { const d = cycleDueDates(cycle); return `${formatDueDate(d.readyToMeet)} · ${formatDueDate(d.meetingComplete)} · ${formatDueDate(d.resultsSent)}`; })()}
+              </span>
               <div>
                 <Badge variant={cycle.status === "OPEN" ? "success" : "slate"}>{cycle.status}</Badge>
               </div>
@@ -247,6 +379,31 @@ export default function AdminCyclesPage() {
                   <p className="text-center py-4 text-sm text-ink-3">Loading...</p>
                 ) : cycleDetail ? (
                   <div className="space-y-4 pt-4">
+                    {/* Milestones (editable) */}
+                    <div className="rounded-lg border border-line bg-paper p-3">
+                      <div className="flex flex-wrap items-end gap-3">
+                        {MILESTONE_FIELDS.map((m) => (
+                          <label key={m.key} className="flex flex-col gap-1">
+                            <span className="eyebrow">{m.label} by</span>
+                            <input
+                              type="date"
+                              value={(editDates ?? datesOf(cycle))[m.key]}
+                              onChange={(e) => setEditDates({ ...(editDates ?? datesOf(cycle)), [m.key]: e.target.value })}
+                              className={`${SELECT_CLASS} mono tnum`}
+                            />
+                          </label>
+                        ))}
+                        <Button size="sm" onClick={() => saveDates(cycle.id)} disabled={!editDates || savingDates}>
+                          {savingDates ? "Saving..." : "Save dates"}
+                        </Button>
+                        {editDates && (
+                          <Button size="sm" variant="ghost" onClick={() => { setEditDates(null); setDatesError(""); }}>Cancel</Button>
+                        )}
+                        <span className="tiny muted">Created {formatDate(cycle.createdAt)}</span>
+                      </div>
+                      {datesError && <p className="text-xs text-magenta mt-2">{datesError}</p>}
+                    </div>
+
                     {/* Stats summary */}
                     <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                       <div className="text-center p-2 rounded-lg border border-line bg-paper">
@@ -295,10 +452,11 @@ export default function AdminCyclesPage() {
                                     >
                                       {a.employee.name}
                                     </button>
-                                    <p className="tiny text-ink-3">Mgr: {a.manager.name}</p>
+                                    <p className="tiny text-ink-3">Mgr: {a.manager?.name ?? "—"}</p>
                                     <div className="flex items-center gap-2.5 mt-1 tiny">
                                       <span className={a.selfStatus === "submitted" ? "text-success" : "text-ink-4"} title="Self">● Self</span>
                                       <span className={a.managerStatus === "submitted" ? "text-success" : "text-ink-4"} title="Manager">● Mgr</span>
+                                      <span className={a.sharedAt ? "text-navy" : "text-ink-4"} title="Shared with employee">● Shared</span>
                                     </div>
                                   </div>
                                 ))}

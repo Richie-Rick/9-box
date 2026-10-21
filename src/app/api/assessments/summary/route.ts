@@ -63,12 +63,59 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Meeting notes are only exposed to a manager who can act on this employee.
-  const canSeeMeeting = isManagerRole || isLeadershipOrAdmin;
-  const mgrData = managerAssessment ? {
-    ...managerAssessment,
-    meeting: canSeeMeeting ? managerAssessment.meeting : null,
-  } : null;
+  // Meeting notes are exposed to a manager who can act on this employee, and
+  // to the employee themselves once the meeting is marked complete.
+  const meetingComplete = !!managerAssessment?.meeting?.completedAt;
+  const canSeeMeeting = isManagerRole || isLeadershipOrAdmin || (isOwnRecord && meetingComplete);
+  // The employee only learns the status of their manager's assessment until
+  // it is shared (or results sent); ratings and comments stay hidden. The
+  // manager's initial ratings (pre-reveal snapshot) are never sent to them.
+  const employeeView = isOwnRecord && !isLeadershipOrAdmin;
+  const visibleToEmployee = !!managerAssessment?.sharedAt || !!managerAssessment?.resultsSentAt;
+  const hideFromEmployee = employeeView && !visibleToEmployee;
+
+  // Flag edits made after sharing so the employee knows to re-read.
+  const editedSinceShared =
+    managerAssessment?.sharedAt
+      ? (await prisma.auditLog.count({
+          where: {
+            entityType: "ManagerAssessment",
+            entityId: managerAssessment.id,
+            action: "assessment.edit",
+            createdAt: { gt: managerAssessment.sharedAt },
+          },
+        })) > 0
+      : false;
+
+  let mgrData: Record<string, unknown> | null = null;
+  if (managerAssessment) {
+    if (hideFromEmployee) {
+      mgrData = {
+        id: managerAssessment.id,
+        submittedAt: null,
+        sharedAt: null,
+        resultsSentAt: null,
+        meetingStatus: managerAssessment.meetingStatus,
+        manager: managerAssessment.manager,
+        meeting: null,
+      };
+    } else {
+      const { initialRatings, meeting, ...rest } = managerAssessment;
+      // The employee gets the notes and dates only; tasks carry their own
+      // visibility rules and are served by the tasks API.
+      const meetingData = !canSeeMeeting || !meeting
+        ? null
+        : employeeView
+          ? { id: meeting.id, notes: meeting.notes, startedAt: meeting.startedAt, completedAt: meeting.completedAt }
+          : meeting;
+      mgrData = {
+        ...rest,
+        ...(employeeView ? {} : { initialRatings }),
+        meeting: meetingData,
+        editedSinceShared,
+      };
+    }
+  }
 
   return NextResponse.json({
     employee,

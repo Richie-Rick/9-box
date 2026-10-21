@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import {
   DndContext,
@@ -14,19 +15,19 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { ShareModal } from "@/components/assessments/share-modal";
 import {
   MEETING_STATUS_LABELS,
   MANAGER_SETTABLE_STATUSES,
   getColumnTracking,
 } from "@/lib/meeting";
 import { getTenureBucket, TENURE_BUCKETS } from "@/lib/tenure";
-import { getCycleDueDates, formatDueDate, type CyclePeriod, type CycleDueDates } from "@/lib/utils";
-import type { TeamMemberStatus, MeetingStatus } from "@/types";
+import { cycleDueDates, formatDueDate, type CycleDueDates } from "@/lib/utils";
+import type { TeamMemberStatus, MeetingStatus, CycleData } from "@/types";
 
 type ChipVariant = "default" | "magenta" | "navy" | "success" | "slate" | "warning";
 
@@ -122,6 +123,8 @@ function MemberCard({
   now,
   onOpenProfile,
   onSendResults,
+  onShare,
+  onAssess,
 }: {
   member: TeamMemberStatus;
   column: ColumnKey;
@@ -129,6 +132,8 @@ function MemberCard({
   now: number;
   onOpenProfile: (id: string) => void;
   onSendResults: (member: TeamMemberStatus) => void;
+  onShare: (member: TeamMemberStatus) => void;
+  onAssess: (member: TeamMemberStatus) => void;
 }) {
   const closed = column === "REVIEW_COMPLETE";
   const settable = MANAGER_SETTABLE_STATUSES.includes(column as MeetingStatus);
@@ -136,7 +141,12 @@ function MemberCard({
   // dropping elsewhere is ignored in handleDragEnd.
   const draggable = (settable || column === "NOT_READY") && !closed;
 
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  // The manager assessment stays reachable from every column: a submitted
+  // review can be re-opened and edited (audited) until results are sent, and
+  // after that the assess page offers Unlock & edit.
+  const mgrSubmitted = member.managerAssessmentStatus === "submitted";
+
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: member.id,
     disabled: !draggable,
   });
@@ -147,7 +157,10 @@ function MemberCard({
   return (
     <div
       ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1 }}
+      // The DragOverlay (below) is what follows the cursor while dragging, so the
+      // source card must stay put — only dim it. Applying the drag transform here
+      // too made the original tile jump on pickup ("doesn't cleanly select").
+      style={{ opacity: isDragging ? 0.4 : 1 }}
       className={`card ${draggable ? "card-hover" : ""} p-2.5 ${closed ? "opacity-70" : ""}`}
     >
       <div className="flex items-start justify-between gap-1.5">
@@ -164,7 +177,7 @@ function MemberCard({
         )}
       </div>
 
-      {/* Self / manager completion icons while the assessment is still underway */}
+      {/* Self / manager completion icons while still in assessment */}
       {column === "NOT_READY" && (
         <div className="mt-1.5 flex items-center gap-2.5">
           <CompletionDot done={member.selfAssessmentStatus === "submitted"} label="Self" />
@@ -172,14 +185,38 @@ function MemberCard({
         </div>
       )}
 
+      {/* Assess CTA — kick off, continue, or edit the manager assessment */}
+      <div className="mt-3">
+        <Button
+          variant={mgrSubmitted || closed ? "secondary" : "magenta"}
+          size="sm"
+          onClick={() => onAssess(member)}
+        >
+          {closed
+            ? "View assessment"
+            : mgrSubmitted
+              ? "Edit assessment"
+              : member.managerAssessmentStatus === "draft"
+                ? "Continue assessment"
+                : "Assess"}
+        </Button>
+      </div>
+
       {closed ? (
         <div className="mt-3">
           <Badge variant="success">Closed · Results Sent</Badge>
         </div>
       ) : (
-        (column === "MEETING_SCHEDULED" || column === "MEETING_COMPLETE") &&
+        column !== "NOT_READY" &&
         member.managerAssessmentId && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            {/* Share the review ahead of the 1:1 so the employee can prepare. */}
+            {mgrSubmitted && !member.sharedAt && column !== "MEETING_COMPLETE" && (
+              <Button variant="secondary" size="sm" onClick={() => onShare(member)}>
+                Share review
+              </Button>
+            )}
+            {member.sharedAt && <Badge variant="navy">Shared</Badge>}
             {column === "MEETING_SCHEDULED" && (
               <Button variant="secondary" size="sm" onClick={() => openMeeting(member.managerAssessmentId!)}>
                 {member.meetingStarted ? "Edit Meeting Notes" : "Start Meeting"}
@@ -206,6 +243,8 @@ function Column({
   dueDate,
   onOpenProfile,
   onSendResults,
+  onShare,
+  onAssess,
 }: {
   column: ColumnKey;
   label: string;
@@ -215,6 +254,8 @@ function Column({
   dueDate: Date | null;
   onOpenProfile: (id: string) => void;
   onSendResults: (member: TeamMemberStatus) => void;
+  onShare: (member: TeamMemberStatus) => void;
+  onAssess: (member: TeamMemberStatus) => void;
 }) {
   // Only the three meeting statuses accept drops; NOT_READY and the terminal
   // REVIEW_COMPLETE column do not.
@@ -247,6 +288,8 @@ function Column({
             now={now}
             onOpenProfile={onOpenProfile}
             onSendResults={onSendResults}
+            onShare={onShare}
+            onAssess={onAssess}
           />
         ))}
         {members.length === 0 && <p className="tiny muted text-center py-4">None</p>}
@@ -346,18 +389,26 @@ function CycleTimeline({ due }: { due: CycleDueDates }) {
   );
 }
 
-export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; cycle?: CyclePeriod | null }) {
+export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; cycle?: CycleData | null }) {
   const router = useRouter();
+  const cycleId = cycle?.id ?? null;
   const [items, setItems] = useState<TeamMemberStatus[]>(members);
   const [selectedTitles, setSelectedTitles] = useState<string[]>([]);
   const [selectedTenures, setSelectedTenures] = useState<string[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [sendTarget, setSendTarget] = useState<TeamMemberStatus | null>(null);
   const [sending, setSending] = useState(false);
+  const [shareTarget, setShareTarget] = useState<TeamMemberStatus | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [overrideTarget, setOverrideTarget] = useState<{
     member: TeamMemberStatus;
     reason: "incomplete" | "no-mgr-assessment";
   } | null>(null);
+
+  // The DragOverlay is portaled to <body> (see below). Gate it behind a mounted
+  // flag so it only renders client-side, where document.body exists.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     setItems(members);
@@ -424,6 +475,34 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
     }
   }
 
+  async function confirmShare() {
+    if (!shareTarget?.managerAssessmentId) return;
+    setSharing(true);
+    try {
+      const res = await fetch("/api/assessments/manager/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assessmentId: shareTarget.managerAssessmentId }),
+      });
+      if (res.ok) {
+        const { sharedAt } = await res.json();
+        const id = shareTarget.id;
+        setItems((ms) => ms.map((m) => (m.id === id ? { ...m, sharedAt } : m)));
+        setShareTarget(null);
+      }
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  // Jump straight into the manager assessment for this report ("kick off the
+  // cycle"). The assess page is keyed on employee + cycle and upserts the row,
+  // so we only need the cycle id, not an existing managerAssessmentId.
+  function openAssessment(member: TeamMemberStatus) {
+    if (!cycleId) return;
+    router.push(`/assess/${member.id}?cycleId=${cycleId}`);
+  }
+
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
@@ -461,7 +540,7 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
 
   const activeMember = activeId ? items.find((m) => m.id === activeId) : null;
 
-  const dueDates = useMemo(() => (cycle ? getCycleDueDates(cycle) : null), [cycle]);
+  const dueDates = useMemo(() => (cycle ? cycleDueDates(cycle) : null), [cycle]);
   const now = useMemo(() => Date.now(), []);
   const columnDue: Partial<Record<ColumnKey, Date>> = dueDates
     ? {
@@ -469,6 +548,9 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
         READY_TO_MEET: dueDates.meetingComplete,
         MEETING_SCHEDULED: dueDates.meetingComplete,
         MEETING_COMPLETE: dueDates.resultsSent,
+        // Terminal column shares the results deadline so its header keeps a
+        // "by <date>" line, matching the other columns and staying aligned.
+        REVIEW_COMPLETE: dueDates.resultsSent,
       }
     : {};
 
@@ -492,18 +574,42 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
               dueDate={columnDue[key] ?? null}
               onOpenProfile={(id) => router.push(`/team/${id}`)}
               onSendResults={(m) => setSendTarget(m)}
+              onShare={(m) => setShareTarget(m)}
+              onAssess={openAssessment}
             />
           ))}
         </div>
-        <DragOverlay>
-          {activeMember ? (
-            <div className="card border-magenta p-3 shadow-lg w-[210px]">
-              <CardBody member={activeMember} />
-            </div>
-          ) : null}
-        </DragOverlay>
+        {/* Portal the overlay to <body> so its position:fixed is anchored to the
+            viewport. Rendered inside an ancestor (the page <main> runs a transform
+            animation), a transformed ancestor becomes the containing block and the
+            dragged tile drifts away from the cursor. */}
+        {mounted &&
+          createPortal(
+            <DragOverlay>
+              {activeMember ? (
+                // dnd-kit sizes this overlay's wrapper to the source card's real
+                // measured width. Match it with w-full (not a fixed width) and the
+                // source card's p-2.5 padding so the visible tile exactly covers the
+                // card you grabbed — a hardcoded width left the cursor off the tile
+                // whenever the column (flex-1) grew wider than that fixed value.
+                <div className="card border-magenta p-2.5 shadow-lg w-full cursor-grabbing">
+                  <CardBody member={activeMember} />
+                </div>
+              ) : null}
+            </DragOverlay>,
+            document.body
+          )}
       </DndContext>
 
+      {shareTarget && (
+        <ShareModal
+          memberName={shareTarget.name}
+          selfSubmitted={shareTarget.selfAssessmentStatus === "submitted"}
+          busy={sharing}
+          onConfirm={confirmShare}
+          onCancel={() => setShareTarget(null)}
+        />
+      )}
       {sendTarget && (
         <SendResultsModal
           memberName={sendTarget.name}

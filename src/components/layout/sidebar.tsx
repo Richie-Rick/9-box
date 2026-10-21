@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ClipboardCheck,
   SquareCheckBig,
+  Target,
   Users,
   Grid2x2,
   KanbanSquare,
@@ -38,6 +39,7 @@ const NAV: NavSection[] = [
     title: "You",
     items: [
       { href: "/my-reviews", label: "My Reviews", icon: ClipboardCheck },
+      { href: "/goals", label: "Goals & Metrics", icon: Target },
       { href: "/tasks", label: "Tasks", icon: SquareCheckBig },
     ],
   },

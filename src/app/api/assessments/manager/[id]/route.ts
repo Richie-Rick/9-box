@@ -1,7 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after as runAfter } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
+import { logAudit, diffFields } from "@/lib/audit";
+import { MANAGER_ASSESSMENT_FIELDS, MANAGER_RESPONSE_FIELDS, pickFields } from "@/lib/assessment-fields";
+import { sharedEditCheck, cleanReason } from "@/lib/shared-edit";
+import { notifyReviewUpdated } from "@/lib/notifications";
 
 export async function GET(
   _request: Request,
@@ -51,16 +55,86 @@ export async function PUT(
   const { id } = await params;
 
   const existing = await prisma.managerAssessment.findUnique({ where: { id } });
-  if (!existing || existing.managerId !== session.user.id) {
+  const isElevated = session.user.role === "LEADERSHIP" || session.user.role === "ADMIN";
+  if (!existing || (existing.managerId !== session.user.id && !isElevated)) {
     return NextResponse.json({ error: "Not found or not yours" }, { status: 404 });
   }
 
   const body = await request.json();
 
+  // Only whitelisted content fields are written. submittedAt is stamped
+  // server-side: set once when the client submits, never cleared or
+  // overwritten with a client-supplied timestamp.
+  let content = pickFields(body, MANAGER_ASSESSMENT_FIELDS);
+  const wantsSubmit = Boolean(body.submittedAt);
+
+  // Once results have been sent the assessment is locked — only the manager's
+  // responses to the employee's comments may still change.
+  if (existing.resultsSentAt) {
+    content = pickFields(content, MANAGER_RESPONSE_FIELDS);
+    const changed = Object.keys(diffFields(existing as unknown as Record<string, unknown>, { ...existing, ...content }, MANAGER_ASSESSMENT_FIELDS));
+    if (changed.length === 0 || wantsSubmit) {
+      return NextResponse.json(
+        { error: "Results have already been sent; this assessment is locked." },
+        { status: 409 }
+      );
+    }
+  }
+
+  // Once shared with the employee, changing a rating or comment needs a reason.
+  const editReason = cleanReason(body.editReason);
+  if (existing.sharedAt) {
+    const { needsReason } = sharedEditCheck(existing as unknown as Record<string, unknown>, content);
+    if (needsReason && !editReason) {
+      return NextResponse.json(
+        { error: "This review has been shared. Give a short reason for the change so it can be recorded.", needsReason: true },
+        { status: 400 }
+      );
+    }
+  }
+
   const assessment = await prisma.managerAssessment.update({
     where: { id },
-    data: body,
+    data: {
+      ...content,
+      ...(wantsSubmit && !existing.submittedAt ? { submittedAt: new Date() } : {}),
+    },
   });
+
+  // Editing an already-completed (submitted) assessment is allowed but
+  // recorded in the audit trail.
+  if (existing.submittedAt) {
+    const changes = diffFields(
+      existing as unknown as Record<string, unknown>,
+      assessment as unknown as Record<string, unknown>,
+      MANAGER_ASSESSMENT_FIELDS
+    );
+    const changed = Object.keys(changes);
+    if (changed.length > 0) {
+      const before: Record<string, unknown> = {};
+      const after: Record<string, unknown> = {};
+      for (const f of changed) {
+        before[f] = changes[f].from;
+        after[f] = changes[f].to;
+      }
+      await logAudit({
+        actorId: session.user.id,
+        action: "assessment.edit",
+        entityType: "ManagerAssessment",
+        entityId: assessment.id,
+        summary: existing.sharedAt
+          ? `Edited after sharing${editReason ? ` (${editReason})` : ""}: ${changed.join(", ")}`
+          : `Edited after completion: ${changed.join(", ")}`,
+        before,
+        after,
+      });
+      // A rating or comment changed on a shared review: tell the employee.
+      if (existing.sharedAt && changed.some((f) => !MANAGER_RESPONSE_FIELDS.includes(f))) {
+        const id = assessment.id;
+        runAfter(() => notifyReviewUpdated(id).catch((err) => console.error("review_updated email failed", err)));
+      }
+    }
+  }
 
   // Once both self + manager assessments are submitted, the employee is Ready to Meet.
   if (assessment.submittedAt) {

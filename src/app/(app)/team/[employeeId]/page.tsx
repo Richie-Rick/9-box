@@ -48,6 +48,7 @@ interface GoalData {
   description: string | null;
   dueDate: string | null;
   status: string;
+  templateId?: string | null;
   createdBy: { id: string; name: string };
 }
 
@@ -57,6 +58,7 @@ interface KeyMetricData {
   target: string;
   unit: string | null;
   notes: string | null;
+  templateId?: string | null;
   createdBy: { id: string; name: string };
 }
 
@@ -338,7 +340,10 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
                 <div key={metric.id} className="py-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-ink">{metric.name}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-ink">{metric.name}</p>
+                        {metric.templateId && <Badge variant="navy" className="text-[11px]">Role-set</Badge>}
+                      </div>
                       <p className="text-xs muted">
                         Target: <span className="mono tnum text-ink">{metric.target}</span>
                         {metric.unit && <span className="mono"> {metric.unit}</span>}
@@ -350,7 +355,7 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
                           Add Note
                         </Button>
                       )}
-                      {canEdit && (
+                      {canEdit && !metric.templateId && (
                         <Button size="sm" variant="ghost" onClick={() => handleDeleteMetric(metric.id)}>
                           Remove
                         </Button>
@@ -444,7 +449,10 @@ export default function EmployeeProfilePage({ params }: { params: Promise<{ empl
                 <div key={goal.id} className="rounded-lg border border-line p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-ink">{goal.title}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-ink">{goal.title}</p>
+                        {goal.templateId && <Badge variant="navy" className="text-[11px]">Role-set</Badge>}
+                      </div>
                       {goal.description && <p className="text-sm muted mt-0.5">{goal.description}</p>}
                       <div className="flex items-center gap-2 mt-1">
                         {goal.dueDate && (

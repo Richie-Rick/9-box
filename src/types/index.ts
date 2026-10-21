@@ -17,6 +17,9 @@ export interface CycleData {
   quarter: number | null;
   year: number;
   status: "OPEN" | "CLOSED";
+  readyToMeetDueAt?: string | null;
+  meetingDueAt?: string | null;
+  resultsDueAt?: string | null;
   createdAt: string;
 }
 
@@ -36,8 +39,18 @@ export interface ManagerAssessmentData {
   valuesEvidence: string | null;
   engagement: number | null;
   engagementEvidence: string | null;
+  achievementsObserved: string | null;
+  blockersToRemove: string | null;
+  supportCommitted: string | null;
+  responsePerformance?: string | null;
+  responseGrowth?: string | null;
+  responseValues?: string | null;
+  responseEngagement?: string | null;
+  initialRatings?: Record<string, number> | null;
   notes: string | null;
   submittedAt: string | null;
+  sharedAt?: string | null;
+  resultsSentAt?: string | null;
   meetingStatus?: MeetingStatus;
   createdAt: string;
   updatedAt: string;
@@ -54,6 +67,8 @@ export interface SelfAssessmentData {
   achievements: string | null;
   blockers: string | null;
   learning: string | null;
+  growthReadiness: number | null;
+  growthReflection: string | null;
   valCustomerFirst: number | null;
   valStepIntoArena: number | null;
   valFlockToProblems: number | null;
@@ -80,6 +95,7 @@ export interface TeamMemberStatus {
   meetingStatus?: MeetingStatus;
   meetingStarted?: boolean;
   managerAssessmentId?: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
 }
 

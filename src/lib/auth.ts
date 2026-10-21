@@ -19,16 +19,40 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = credentials.email as string;
         const password = credentials.password as string;
 
-        if (!email || !password) return null;
+        if (!email || !password) {
+          console.warn("[auth] login rejected: missing email or password");
+          return null;
+        }
 
-        const user = await prisma.user.findUnique({
-          where: { email },
+        const normalizedEmail = email.trim();
+
+        // Email is case-insensitive, but it is stored with whatever casing was
+        // used at invite/registration time (e.g. "Oscar.Sims@Visory.com.au").
+        // A case-sensitive lookup would reject a user who types their address in
+        // a different case, so match insensitively — mirroring the registration
+        // route's invitation lookup.
+        const user = await prisma.user.findFirst({
+          where: { email: { equals: normalizedEmail, mode: "insensitive" } },
         });
 
-        if (!user || !user.isActive) return null;
+        // Diagnostic logging: collapse-to-null hides why a login failed, which
+        // made an invited user's sign-in failure impossible to triage from the
+        // runtime logs. Log the discriminating reason and the user id where we
+        // have one, but never the email address, password, or hash.
+        if (!user) {
+          console.warn("[auth] login rejected: no matching user");
+          return null;
+        }
+        if (!user.isActive) {
+          console.warn(`[auth] login rejected: user ${user.id} is inactive`);
+          return null;
+        }
 
         const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-        if (!passwordMatch) return null;
+        if (!passwordMatch) {
+          console.warn(`[auth] login rejected: password mismatch for user ${user.id}`);
+          return null;
+        }
 
         return {
           id: user.id,

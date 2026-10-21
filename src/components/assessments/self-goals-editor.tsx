@@ -10,6 +10,8 @@ interface GoalData {
   description: string | null;
   dueDate: string | null;
   status: string;
+  templateId?: string | null;
+  createdBy?: { id: string; name: string } | null;
 }
 
 /**
@@ -76,22 +78,36 @@ export function SelfGoalsEditor({ employeeId }: { employeeId: string }) {
 
       {!loading && goals.length > 0 && (
         <div className="space-y-2">
-          {goals.map((g) => (
-            <div key={g.id} className="flex items-start justify-between rounded-lg border border-line px-3 py-2">
-              <div>
-                <p className="text-sm font-medium text-ink">{g.title}</p>
-                {g.description && <p className="text-xs text-ink-3">{g.description}</p>}
-                {g.dueDate && (
-                  <Badge variant="slate" className="text-[11px] mt-1">
-                    <span className="mono tnum">Due {new Date(g.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
-                  </Badge>
+          {goals.map((g) => {
+            const byEmployee = !g.templateId && (g.createdBy ? g.createdBy.id === employeeId : true);
+            return (
+              <div key={g.id} className="flex items-start justify-between rounded-lg border border-line px-3 py-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-ink">{g.title}</p>
+                    {g.templateId ? (
+                      <Badge variant="navy" className="text-[11px]">Role-set</Badge>
+                    ) : (
+                      <Badge variant="slate" className="text-[11px]">
+                        {byEmployee ? "Set by employee" : "Set by manager"}
+                      </Badge>
+                    )}
+                  </div>
+                  {g.description && <p className="text-xs text-ink-3">{g.description}</p>}
+                  {g.dueDate && (
+                    <Badge variant="slate" className="text-[11px] mt-1">
+                      <span className="mono tnum">Due {new Date(g.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                    </Badge>
+                  )}
+                </div>
+                {byEmployee && (
+                  <Button size="sm" variant="ghost" className="text-[11px] px-2 py-1" onClick={() => removeGoal(g.id)}>
+                    Remove
+                  </Button>
                 )}
               </div>
-              <Button size="sm" variant="ghost" className="text-[11px] px-2 py-1" onClick={() => removeGoal(g.id)}>
-                Remove
-              </Button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
