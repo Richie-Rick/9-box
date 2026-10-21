@@ -19,16 +19,25 @@ import {
   getBox2Action,
   BOX1_GRID,
   BOX2_GRID,
+  BOX1_TIERS,
+  BOX2_TIERS,
+  TIER_LABELS,
+  getTier,
+  metricDisconnect,
   type GridCellConfig,
+  type Tier,
 } from "@/lib/nine-box";
 
 interface PlacedEmployee {
   id: string;
+  assessmentId: string;
   name: string;
   role: string;
   jobTitle: string | null;
   team: string | null;
   startDate: string | null;
+  managerId: string | null;
+  managerName: string | null;
   box1Label: string;
   box2Label: string;
   performance: number;
@@ -37,6 +46,18 @@ interface PlacedEmployee {
   engagement: number;
 }
 
+// Accountability signals for the cycle, from /api/analysis/signals.
+interface Signals {
+  managers: { id: string; name: string; reports: number }[];
+  edits: Record<string, number>;
+  adjusted: string[];
+  results: { employeeId: string; keyMetricId: string; name: string; actual: string; achieved: boolean | null }[];
+}
+
+const TIERS: Tier[] = ["top", "medium", "low"];
+const TIER_BAR: Record<Tier, string> = { top: "bg-success", medium: "bg-amber", low: "bg-magenta" };
+const TIER_TEXT: Record<Tier, string> = { top: "text-success", medium: "text-amber", low: "text-magenta" };
+
 function computePlaced(assessments: ManagerAssessmentData[]): PlacedEmployee[] {
   return assessments
     .filter((a) => a.submittedAt && a.performance && a.growthReadiness && a.engagement && a.valCustomerFirst && a.valStepIntoArena && a.valFlockToProblems && a.valGiveEnergy)
@@ -44,11 +65,14 @@ function computePlaced(assessments: ManagerAssessmentData[]): PlacedEmployee[] {
       const va = getValuesAlignment(a.valCustomerFirst!, a.valStepIntoArena!, a.valFlockToProblems!, a.valGiveEnergy!);
       return {
         id: a.employeeId,
+        assessmentId: a.id,
         name: a.employee?.name || "Unknown",
         role: a.employee?.role || "EMPLOYEE",
         jobTitle: a.employee?.jobTitle || null,
         team: a.employee?.team || null,
         startDate: a.employee?.startDate ?? null,
+        managerId: a.manager?.id ?? a.managerId ?? null,
+        managerName: a.manager?.name ?? null,
         box1Label: getBox1Label(a.performance!, a.growthReadiness!),
         box2Label: getBox2Label(va, a.engagement!),
         performance: a.performance!,
@@ -69,9 +93,7 @@ function computeInsights(employees: PlacedEmployee[]) {
   const avgTD = employees.reduce((s, e) => s + e.performance * e.growthReadiness, 0) / total;
   const avgCM = employees.reduce((s, e) => s + e.valuesAlignment * e.engagement, 0) / total;
 
-  const topTalent = employees.filter((e) =>
-    e.box1Label === "Ready to Promote" || e.box1Label === "Stretch & Develop" || e.box1Label === "Expand the Role"
-  ).length;
+  const topTalent = employees.filter((e) => getTier(e.box1Label, BOX1_TIERS) === "top").length;
   const atRisk = employees.filter((e) =>
     e.box2Label === "Have the Conversation" || e.box2Label === "Find What's Draining"
   ).length;
@@ -92,6 +114,9 @@ export default function CalibrationPage() {
   const [selectedTitles, setSelectedTitles] = useState<string[]>([]);
   const [selectedTeams, setSelectedTeams] = useState<string[]>([]);
   const [selectedTenures, setSelectedTenures] = useState<string[]>([]);
+  const [selectedManagers, setSelectedManagers] = useState<string[]>([]);
+  const [gridView, setGridView] = useState<"names" | "counts" | "heatmap">("names");
+  const [signals, setSignals] = useState<Signals | null>(null);
   const [viewMode, setViewMode] = useState<"single" | "range">("single");
   const [rangeStartId, setRangeStartId] = useState<string>("");
   const [rangeEndId, setRangeEndId] = useState<string>("");
@@ -112,6 +137,10 @@ export default function CalibrationPage() {
     fetch(`/api/assessments/manager?cycleId=${selectedCycleId}`)
       .then((r) => r.json())
       .then(setAssessments);
+    fetch(`/api/analysis/signals?cycleId=${selectedCycleId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setSignals)
+      .catch(() => setSignals(null));
 
     const idx = cycles.findIndex((c) => c.id === selectedCycleId);
     if (idx >= 0 && idx < cycles.length - 1) {
@@ -120,7 +149,6 @@ export default function CalibrationPage() {
         .then((r) => r.json())
         .then(setPrevAssessments);
     } else {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPrevAssessments([]);
     }
   }, [selectedCycleId, cycles, viewMode]);
@@ -160,11 +188,14 @@ export default function CalibrationPage() {
         const first = valid[0];
         averaged.push({
           id: first.employeeId,
+          assessmentId: first.id,
           name: first.employee?.name || "Unknown",
           role: first.employee?.role || "EMPLOYEE",
           jobTitle: first.employee?.jobTitle || null,
           team: first.employee?.team || null,
           startDate: first.employee?.startDate ?? null,
+          managerId: first.manager?.id ?? first.managerId ?? null,
+          managerName: first.manager?.name ?? null,
           box1Label: getBox1Label(avgPerf, avgGrowth),
           box2Label: getBox2Label(avgVa, avgEng),
           performance: avgPerf,
@@ -182,24 +213,90 @@ export default function CalibrationPage() {
 
   const titleOptions = useMemo(() => [...new Set(placedEmployees.map((e) => e.jobTitle).filter(Boolean) as string[])].sort(), [placedEmployees]);
   const teamOptions = useMemo(() => [...new Set(placedEmployees.map((e) => e.team).filter(Boolean) as string[])].sort(), [placedEmployees]);
+  const managerOptions = useMemo(() => [...new Set(placedEmployees.map((e) => e.managerName).filter(Boolean) as string[])].sort(), [placedEmployees]);
 
   const matchesFilters = useMemo(() => {
     return (e: PlacedEmployee) => {
       if (selectedTitles.length > 0 && (!e.jobTitle || !selectedTitles.includes(e.jobTitle))) return false;
       if (selectedTeams.length > 0 && (!e.team || !selectedTeams.includes(e.team))) return false;
+      if (selectedManagers.length > 0 && (!e.managerName || !selectedManagers.includes(e.managerName))) return false;
       if (selectedTenures.length > 0) {
         const bucket = getTenureBucket(e.startDate);
         if (!bucket || !selectedTenures.includes(bucket)) return false;
       }
       return true;
     };
-  }, [selectedTitles, selectedTeams, selectedTenures]);
+  }, [selectedTitles, selectedTeams, selectedManagers, selectedTenures]);
 
   const filteredEmployees = useMemo(() => placedEmployees.filter(matchesFilters), [placedEmployees, matchesFilters]);
   const filteredPrev = useMemo(() => prevPlacedEmployees.filter(matchesFilters), [prevPlacedEmployees, matchesFilters]);
 
   const currentInsights = useMemo(() => computeInsights(filteredEmployees), [filteredEmployees]);
   const prevInsights = useMemo(() => computeInsights(filteredPrev), [filteredPrev]);
+
+  const tiers = activeGrid === "box1" ? BOX1_TIERS : BOX2_TIERS;
+  const tierOf = (e: PlacedEmployee) => getTier(activeGrid === "box1" ? e.box1Label : e.box2Label, tiers);
+
+  // How many land in each tier of the active grid (decision D5 mapping).
+  const tierCounts = useMemo(() => {
+    const counts: Record<Tier, number> = { top: 0, medium: 0, low: 0 };
+    for (const e of filteredEmployees) counts[tierOf(e)] += 1;
+    return counts;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredEmployees, activeGrid]);
+
+  // Performance rating versus key-metric outcomes, per employee in the cycle.
+  const disconnects = useMemo(() => {
+    if (viewMode !== "single" || !signals) return [];
+    const byEmployee = new Map<string, Signals["results"]>();
+    for (const r of signals.results) {
+      if (!byEmployee.has(r.employeeId)) byEmployee.set(r.employeeId, []);
+      byEmployee.get(r.employeeId)!.push(r);
+    }
+    return filteredEmployees
+      .map((e) => {
+        const results = byEmployee.get(e.id) ?? [];
+        const { hit, missed, disconnect } = metricDisconnect(e.performance, results);
+        const missedNames = results.filter((r) => r.achieved === false).map((r) => r.name);
+        return { employee: e, hit, missed, disconnect, missedNames };
+      })
+      .filter((d) => d.disconnect);
+  }, [filteredEmployees, signals, viewMode]);
+
+  // Per-manager rollup: completion against their active reports, averages,
+  // share in the top tier, and the accountability signals.
+  const managerRollup = useMemo(() => {
+    if (viewMode !== "single") return [];
+    const disconnectIds = new Set(disconnects.map((d) => d.employee.id));
+    const groups = new Map<string, { name: string; employees: PlacedEmployee[]; reports: number }>();
+    for (const m of signals?.managers ?? []) {
+      if (selectedManagers.length > 0 && !selectedManagers.includes(m.name)) continue;
+      groups.set(m.id, { name: m.name, employees: [], reports: m.reports });
+    }
+    for (const e of filteredEmployees) {
+      const key = e.managerId ?? "none";
+      if (!groups.has(key)) groups.set(key, { name: e.managerName ?? "No manager", employees: [], reports: 0 });
+      groups.get(key)!.employees.push(e);
+    }
+    return [...groups.entries()]
+      .map(([id, g]) => {
+        const n = g.employees.length;
+        return {
+          id,
+          name: g.name,
+          submitted: n,
+          total: Math.max(g.reports, n),
+          avgTD: n ? g.employees.reduce((s, e) => s + e.performance * e.growthReadiness, 0) / n : 0,
+          avgCM: n ? g.employees.reduce((s, e) => s + e.valuesAlignment * e.engagement, 0) / n : 0,
+          topPct: n ? (g.employees.filter((e) => tierOf(e) === "top").length / n) * 100 : 0,
+          edited: g.employees.filter((e) => (signals?.edits[e.assessmentId] ?? 0) > 0).length,
+          adjusted: g.employees.filter((e) => signals?.adjusted.includes(e.assessmentId)).length,
+          disconnects: g.employees.filter((e) => disconnectIds.has(e.id)).length,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredEmployees, signals, disconnects, viewMode, activeGrid, selectedManagers]);
 
   const grid = activeGrid === "box1" ? BOX1_GRID : BOX2_GRID;
   const xLabel = activeGrid === "box1" ? "Performance" : "Values Alignment";
@@ -290,6 +387,7 @@ export default function CalibrationPage() {
 
             <MultiSelect label="Titles" options={titleOptions} selected={selectedTitles} onChange={setSelectedTitles} />
             <MultiSelect label="Teams" options={teamOptions} selected={selectedTeams} onChange={setSelectedTeams} />
+            <MultiSelect label="Managers" options={managerOptions} selected={selectedManagers} onChange={setSelectedManagers} />
             <MultiSelect label="Tenure" options={[...TENURE_BUCKETS]} selected={selectedTenures} onChange={setSelectedTenures} />
             <div className="flex border border-line rounded-md overflow-hidden">
               <button
@@ -312,6 +410,19 @@ export default function CalibrationPage() {
       {/* 9-Box Grid */}
       <Card>
         <CardContent className="p-4">
+          <div className="flex items-center justify-end mb-3">
+            <div className="flex border border-line rounded-md overflow-hidden" role="group" aria-label="Grid view">
+              {(["names", "counts", "heatmap"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setGridView(v)}
+                  className={`px-3 py-1.5 text-xs font-medium capitalize transition-colors ${gridView === v ? "bg-navy text-paper" : "bg-paper text-ink hover:bg-paper-2"}`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex gap-2">
             <div className="flex flex-col justify-between items-center w-8 py-4">
               <span className="eyebrow -rotate-90 whitespace-nowrap">High</span>
@@ -323,28 +434,42 @@ export default function CalibrationPage() {
               <div className="grid grid-cols-3 gap-2">
                 {grid.map((cell) => {
                   const emps = getEmployeesForCell(cell);
+                  const pct = filteredEmployees.length ? (emps.length / filteredEmployees.length) * 100 : 0;
                   // Top-right "ready" cell (high x, high y) is the scarce magenta highlight.
                   const isReady = cell.x === 3 && cell.y === 3;
+                  // Heatmap shades each cell by its share of the population.
+                  const heat = gridView === "heatmap" ? Math.min(0.85, 0.08 + pct / 100) : null;
                   return (
                     <div
                       key={`${cell.x}-${cell.y}`}
                       className={`rounded-md border p-3 min-h-[100px] ${
                         isReady ? "bg-magenta-3 border-magenta" : "bg-paper-2 border-line"
                       }`}
+                      style={heat !== null ? { backgroundColor: `color-mix(in srgb, var(--navy) ${Math.round(heat * 100)}%, var(--paper))` } : undefined}
                     >
-                      <p className="eyebrow mb-2">{cell.label}</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {emps.map((emp) => (
-                          <Link
-                            key={emp.id}
-                            href={`/summary/${emp.id}?cycleId=${selectedCycleId}`}
-                            className="flex items-center gap-1.5 rounded-full bg-paper border border-line px-1.5 py-0.5 text-xs text-ink hover:border-magenta transition-colors"
-                          >
-                            <Avatar name={emp.name} size="sm" />
-                            <span className="pr-1">{emp.name}</span>
-                          </Link>
-                        ))}
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <p className={`eyebrow ${heat !== null && heat > 0.45 ? "text-white/80" : ""}`}>{cell.label}</p>
+                        <span className={`mono tnum text-xs whitespace-nowrap ${heat !== null && heat > 0.45 ? "text-white" : "text-ink-2"}`}>
+                          {emps.length} <span className={heat !== null && heat > 0.45 ? "text-white/70" : "text-ink-3"}>({Math.round(pct)}%)</span>
+                        </span>
                       </div>
+                      {gridView === "names" && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {emps.map((emp) => (
+                            <Link
+                              key={emp.id}
+                              href={`/summary/${emp.id}?cycleId=${selectedCycleId}`}
+                              className="flex items-center gap-1.5 rounded-full bg-paper border border-line px-1.5 py-0.5 text-xs text-ink hover:border-magenta transition-colors"
+                            >
+                              <Avatar name={emp.name} size="sm" />
+                              <span className="pr-1">{emp.name}</span>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                      {gridView === "counts" && (
+                        <p className="serif text-3xl mono tnum text-ink">{emps.length}</p>
+                      )}
                     </div>
                   );
                 })}
@@ -362,6 +487,35 @@ export default function CalibrationPage() {
             <p className="mt-4 text-center text-sm muted">
               {placedEmployees.length === 0 ? "No submitted assessments for this period." : "No employees match the selected filters."}
             </p>
+          )}
+
+          {filteredEmployees.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-line">
+              <div className="flex items-center justify-between mb-2">
+                <span className="eyebrow">{activeGrid === "box1" ? "Talent tiers" : "Culture tiers"}</span>
+                <span className="tiny muted">{filteredEmployees.length} people</span>
+              </div>
+              <div className="flex h-2.5 rounded-full overflow-hidden bg-paper-2 border border-line">
+                {TIERS.map((tier) => {
+                  const pct = (tierCounts[tier] / filteredEmployees.length) * 100;
+                  return pct > 0 ? (
+                    <div key={tier} className={TIER_BAR[tier]} style={{ width: `${pct}%` }} title={`${TIER_LABELS[tier]}: ${tierCounts[tier]}`} />
+                  ) : null;
+                })}
+              </div>
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+                {TIERS.map((tier) => (
+                  <div key={tier} className="flex items-start gap-1.5">
+                    <span className={`inline-block w-2.5 h-2.5 rounded-full mt-1 ${TIER_BAR[tier]}`} />
+                    <div>
+                      <span className="font-medium text-ink">{TIER_LABELS[tier]}</span>{" "}
+                      <span className="mono tnum text-ink-2">{tierCounts[tier]} ({Math.round((tierCounts[tier] / filteredEmployees.length) * 100)}%)</span>
+                      <p className="tiny muted">{tiers[tier].join(" · ")}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -493,6 +647,8 @@ export default function CalibrationPage() {
                     <th className="text-center py-2 px-2">Engage</th>
                     <th className="text-center py-2 px-2">TD</th>
                     <th className="text-center py-2 px-2">CM</th>
+                    <th className="text-center py-2 px-2">Tier</th>
+                    <th className="text-left py-2 px-2">Reports to</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -502,6 +658,9 @@ export default function CalibrationPage() {
                     const cm = emp.valuesAlignment * emp.engagement;
                     const prevTd = prev ? prev.performance * prev.growthReadiness : null;
                     const prevCm = prev ? prev.valuesAlignment * prev.engagement : null;
+                    const tier = tierOf(emp);
+                    const prevTier = prev ? tierOf(prev) : null;
+                    const tierRank: Record<Tier, number> = { low: 0, medium: 1, top: 2 };
                     return (
                       <tr key={emp.id} className="dt-row">
                         <td className="py-2 px-2">
@@ -534,9 +693,97 @@ export default function CalibrationPage() {
                           <span className={`text-sm mono tnum font-semibold ${cm >= 6 ? "text-success" : "text-magenta"}`}>{cm}</span>
                           {prevCm !== null && <TrendDot current={cm} previous={prevCm} />}
                         </td>
+                        <td className="py-2 px-2 text-center">
+                          <span className={`text-xs font-medium ${TIER_TEXT[tier]}`}>{TIER_LABELS[tier]}</span>
+                          {prevTier && prevTier !== tier && <TrendDot current={tierRank[tier]} previous={tierRank[prevTier]} />}
+                        </td>
+                        <td className="py-2 px-2 text-xs muted">{emp.managerName ?? "—"}</td>
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Rating versus metric results */}
+      {viewMode === "single" && filteredEmployees.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div>
+              <h2 className="card-title">Rating vs results</h2>
+              <p className="text-xs muted mt-0.5">
+                Performance rated Meeting or above while more key metrics were missed than hit. A coaching conversation, or a goal-setting problem.
+              </p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {disconnects.length === 0 ? (
+              <p className="text-sm muted">
+                No disconnects in this period{signals && signals.results.length === 0 ? " (no metric results recorded yet)" : ""}.
+              </p>
+            ) : (
+              <div className="divide-y divide-line">
+                {disconnects.map((d) => (
+                  <div key={d.employee.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <Link href={`/summary/${d.employee.id}?cycleId=${selectedCycleId}`} className="text-sm font-medium text-ink hover:text-magenta">
+                        {d.employee.name}
+                      </Link>
+                      <p className="text-xs muted">
+                        Rated {d.employee.performance === 3 ? "Exceeding" : "Meeting"} by {d.employee.managerName ?? "manager"} · missed: {d.missedNames.join(", ")}
+                      </p>
+                    </div>
+                    <Badge variant="warning"><span className="mono tnum">{d.missed}</span> missed · <span className="mono tnum">{d.hit}</span> hit</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* By manager */}
+      {viewMode === "single" && managerRollup.length > 0 && (
+        <Card>
+          <CardHeader>
+            <div>
+              <h2 className="card-title">By manager</h2>
+              <p className="text-xs muted mt-0.5">Completion, averages and the accountability signals for each manager&apos;s reports</p>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="dt-head">
+                    <th className="text-left py-2 px-2">Manager</th>
+                    <th className="text-center py-2 px-2">Submitted</th>
+                    <th className="text-center py-2 px-2">Avg TD</th>
+                    <th className="text-center py-2 px-2">Avg CM</th>
+                    <th className="text-center py-2 px-2">% Top</th>
+                    <th className="text-center py-2 px-2" title="Reviews edited after submission">Edited</th>
+                    <th className="text-center py-2 px-2" title="Ratings changed after reading the self-assessment">Adjusted</th>
+                    <th className="text-center py-2 px-2" title="Rating above metric results">Disconnects</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {managerRollup.map((m) => (
+                    <tr key={m.id} className="dt-row">
+                      <td className="py-2 px-2 font-medium text-ink">{m.name}</td>
+                      <td className="py-2 px-2 text-center">
+                        <span className={`mono tnum ${m.submitted === m.total ? "text-success" : m.submitted === 0 ? "text-magenta" : "text-amber"}`}>{m.submitted}/{m.total}</span>
+                      </td>
+                      <td className={`py-2 px-2 text-center mono tnum font-medium ${m.avgTD >= 6 ? "text-success" : "text-magenta"}`}>{m.submitted ? m.avgTD.toFixed(1) : "—"}</td>
+                      <td className={`py-2 px-2 text-center mono tnum font-medium ${m.avgCM >= 6 ? "text-success" : "text-magenta"}`}>{m.submitted ? m.avgCM.toFixed(1) : "—"}</td>
+                      <td className="py-2 px-2 text-center mono tnum">{m.submitted ? `${Math.round(m.topPct)}%` : "—"}</td>
+                      <td className="py-2 px-2 text-center mono tnum">{m.edited}</td>
+                      <td className="py-2 px-2 text-center mono tnum">{m.adjusted}</td>
+                      <td className={`py-2 px-2 text-center mono tnum ${m.disconnects > 0 ? "text-amber font-medium" : ""}`}>{m.disconnects}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -563,6 +810,7 @@ export default function CalibrationPage() {
                         {emp.name}
                       </Link>
                       <Badge variant="slate">{label}</Badge>
+                      {emp.managerName && <span className="tiny muted">reports to {emp.managerName}</span>}
                     </div>
                     <p className="text-sm muted">{action}</p>
                   </div>

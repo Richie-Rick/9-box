@@ -35,6 +35,14 @@ interface MetricResultData {
   id: string;
   actual: string;
   note: string | null;
+  achieved: boolean | null;
+}
+
+export interface MetricsStatus {
+  total: number;
+  complete: number;
+  hit: number;
+  missed: number;
 }
 
 interface MetricData {
@@ -83,8 +91,8 @@ export function GoalsPanel({
   employeeId: string;
   cycleId?: string | null;
   editable?: boolean;
-  /** Reports how many key metrics exist and how many have a saved actual. */
-  onMetricsStatus?: (status: { total: number; complete: number }) => void;
+  /** Reports how many key metrics exist, how many have a saved actual, and how many were hit or missed. */
+  onMetricsStatus?: (status: MetricsStatus) => void;
   /** Override the wrapper classes (defaults to a centred, narrow column). */
   className?: string;
   /** Render expanded on first paint regardless of edit mode. */
@@ -102,6 +110,8 @@ export function GoalsPanel({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(defaultOpen ? false : !editable);
   const [completedMetricIds, setCompletedMetricIds] = useState<Set<string>>(new Set());
+  // Hit / missed per metric for the cycle, kept current as results are saved.
+  const [outcomes, setOutcomes] = useState<Record<string, boolean | null>>({});
 
   const query = (path: string) =>
     `${path}?employeeId=${employeeId}${cycleId ? `&cycleId=${cycleId}` : ""}`;
@@ -132,6 +142,7 @@ export function GoalsPanel({
         setCompletedMetricIds(
           new Set(ms.filter((metric) => (metric.results?.[0]?.actual ?? "").trim()).map((metric) => metric.id))
         );
+        setOutcomes(Object.fromEntries(ms.map((metric) => [metric.id, metric.results?.[0]?.achieved ?? null])));
         setLoading(false);
       })
       .catch((err: Error) => {
@@ -141,11 +152,17 @@ export function GoalsPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [employeeId, cycleId]);
 
-  // Report key-metric completion so a parent can gate on it.
+  // Report key-metric completion and outcomes so a parent can gate on them.
   useEffect(() => {
-    onMetricsStatus?.({ total: metrics.length, complete: completedMetricIds.size });
+    const flags = Object.values(outcomes);
+    onMetricsStatus?.({
+      total: metrics.length,
+      complete: completedMetricIds.size,
+      hit: flags.filter((f) => f === true).length,
+      missed: flags.filter((f) => f === false).length,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [metrics, completedMetricIds]);
+  }, [metrics, completedMetricIds, outcomes]);
 
   const isEmpty = goals.length === 0 && metrics.length === 0;
   const open = flat || !collapsed;
@@ -198,13 +215,14 @@ export function GoalsPanel({
                     cycleId={cycleId}
                     editable={editable}
                     subjectId={employeeId}
-                    onSaved={() =>
+                    onSaved={(achieved) => {
                       setCompletedMetricIds((prev) => {
                         const next = new Set(prev);
                         next.add(m.id);
                         return next;
-                      })
-                    }
+                      });
+                      setOutcomes((prev) => ({ ...prev, [m.id]: achieved }));
+                    }}
                   />
                 ))}
               </div>
@@ -237,11 +255,12 @@ function MetricRow({
   cycleId?: string | null;
   editable: boolean;
   subjectId: string;
-  onSaved?: () => void;
+  onSaved?: (achieved: boolean | null) => void;
 }) {
   const existing = metric.results?.[0];
   const [actual, setActual] = useState(existing?.actual ?? "");
   const [note, setNote] = useState(existing?.note ?? "");
+  const [achieved, setAchieved] = useState<boolean | null>(existing?.achieved ?? null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -254,11 +273,11 @@ function MetricRow({
       const res = await fetch("/api/key-metrics/results", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keyMetricId: metric.id, cycleId, actual, note }),
+        body: JSON.stringify({ keyMetricId: metric.id, cycleId, actual, note, achieved }),
       });
       if (res.ok) {
         setSaved(true);
-        onSaved?.();
+        onSaved?.(achieved);
         setTimeout(() => setSaved(false), 2000);
       } else {
         const e = await res.json().catch(() => ({}));
@@ -296,6 +315,27 @@ function MetricRow({
               {saving ? "Saving..." : saved ? "Saved ✓" : "Save"}
             </Button>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-ink-3">Against target:</span>
+            {([
+              [true, "Hit"],
+              [false, "Missed"],
+              [null, "Unsure"],
+            ] as [boolean | null, string][]).map(([value, label]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setAchieved(value)}
+                className={`chip cursor-pointer ${
+                  achieved === value
+                    ? value === true ? "chip-success" : value === false ? "chip-magenta" : "chip-navy"
+                    : "chip-slate"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <input
             type="text"
             value={note}
@@ -307,9 +347,13 @@ function MetricRow({
         </div>
       ) : (
         existing && (
-          <p className="mt-1 text-sm text-ink-2">
-            Actual: <span className="font-medium text-ink mono tnum">{existing.actual}</span>
-            {existing.note ? ` — ${existing.note}` : ""}
+          <p className="mt-1 text-sm text-ink-2 flex flex-wrap items-center gap-2">
+            <span>
+              Actual: <span className="font-medium text-ink mono tnum">{existing.actual}</span>
+              {existing.note ? ` — ${existing.note}` : ""}
+            </span>
+            {existing.achieved === true && <Badge variant="success">Hit</Badge>}
+            {existing.achieved === false && <Badge variant="magenta">Missed</Badge>}
           </p>
         )
       )}

@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
 import { formatCyclePeriod } from "@/lib/utils";
-import { getBox1Label, getBox2Label, getValuesAlignment } from "@/lib/nine-box";
+import { getBox1Label, getBox2Label, getValuesAlignment, metricDisconnect } from "@/lib/nine-box";
 import { PlacementCards } from "@/components/assessments/placement-cards";
 import { ShareModal } from "@/components/assessments/share-modal";
 import { DimensionComparison } from "@/components/assessments/dimension-comparison";
@@ -137,6 +137,7 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
   const [sendingResults, setSendingResults] = useState(false);
   const [showShare, setShowShare] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [metricOutcomes, setMetricOutcomes] = useState({ hit: 0, missed: 0 });
 
   useEffect(() => {
     if (!cycleId) return;
@@ -205,6 +206,10 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
     : null;
   const box1Label = mgr?.performance && mgr?.growthReadiness ? getBox1Label(mgr.performance, mgr.growthReadiness) : null;
   const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
+  const ratingDisconnect = metricDisconnect(mgr?.performance ?? null, [
+    ...Array(metricOutcomes.hit).fill({ achieved: true }),
+    ...Array(metricOutcomes.missed).fill({ achieved: false }),
+  ]).disconnect;
 
   // Rows come from the shared section config, so both sides' answers to the
   // same question sit together. The manager also sees where a rating moved
@@ -284,6 +289,14 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
       {/* 9-Box Placements */}
       <PlacementCards box1Label={box1Label} box2Label={box2Label} />
 
+      {ratingDisconnect && (
+        <div className="rounded-lg bg-paper-2 border border-amber/40 p-3 text-sm text-ink-2">
+          <span className="font-medium text-ink">Rating vs results:</span> {employee.name} missed more key metrics than
+          they hit this cycle ({metricOutcomes.missed} missed, {metricOutcomes.hit} hit) but is rated{" "}
+          {mgr?.performance === 3 ? "Exceeding" : "Meeting"} on performance.
+        </div>
+      )}
+
       {/* Side-by-side Comparison */}
       <Card>
         <div className="card-head">
@@ -299,7 +312,14 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
       </Card>
 
       {/* Goals & metrics reviewed this cycle (read-only) */}
-      {cycle && <GoalsPanel employeeId={employeeId} cycleId={cycle.id} defaultOpen />}
+      {cycle && (
+        <GoalsPanel
+          employeeId={employeeId}
+          cycleId={cycle.id}
+          defaultOpen
+          onMetricsStatus={({ hit, missed }) => setMetricOutcomes({ hit, missed })}
+        />
+      )}
 
       {/* Review notes & meeting records */}
       {cycle && (

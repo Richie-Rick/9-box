@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SECTIONS, sectionRatingFields } from "@/lib/assessment-sections";
 import { MANAGER_RESPONSE_FIELDS } from "@/lib/assessment-fields";
+import { metricDisconnect } from "@/lib/nine-box";
 
 const fieldClass =
   "w-full rounded-lg border border-line-2 bg-paper px-3 py-2 text-sm text-ink outline-none transition-colors placeholder:text-ink-3 focus:border-magenta focus:ring-2 focus:ring-magenta/20";
@@ -33,8 +34,10 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const [error, setError] = useState<string | null>(null);
   // Required once the review has been shared and a rating or comment changes.
   const [editReason, setEditReason] = useState("");
-  // Whether every key metric has a saved actual result (gates section 1).
+  // Whether every key metric has a saved actual result (gates section 1),
+  // and how many were hit or missed (warns on the performance rating).
   const [metricsComplete, setMetricsComplete] = useState(true);
+  const [metricOutcomes, setMetricOutcomes] = useState({ hit: 0, missed: 0 });
   // Self-assessment answers revealed per section (rate blind, then reveal).
   const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
   const [revealing, setRevealing] = useState<Record<string, boolean>>({});
@@ -189,9 +192,21 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
     });
 
     if (section.id !== "performance") return { ...section, questions };
+    const performance = values.performance as number | null;
+    const { disconnect } = metricDisconnect(performance, [
+      ...Array(metricOutcomes.hit).fill({ achieved: true }),
+      ...Array(metricOutcomes.missed).fill({ achieved: false }),
+    ]);
     return {
       ...section,
       questions,
+      notice: disconnect ? (
+        <>
+          <span className="font-medium text-ink">Rating vs results:</span> {employeeName || "this person"} missed more key
+          metrics than they hit this cycle ({metricOutcomes.missed} missed, {metricOutcomes.hit} hit), but is rated{" "}
+          {performance === 3 ? "Exceeding" : "Meeting"}. Check the evidence supports the rating, or whether the targets were the problem.
+        </>
+      ) : undefined,
       // Block advancing past Performance until every key metric has a saved
       // actual result — it's the second most important thing to complete.
       blockNext: !locked && !metricsComplete,
@@ -202,7 +217,10 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
             employeeId={employeeId}
             cycleId={cycleId}
             editable={!locked}
-            onMetricsStatus={({ total, complete }) => setMetricsComplete(total === 0 || complete >= total)}
+            onMetricsStatus={({ total, complete, hit, missed }) => {
+              setMetricsComplete(total === 0 || complete >= total);
+              setMetricOutcomes({ hit, missed });
+            }}
           />
           <ActionsEditor
             employeeId={employeeId}

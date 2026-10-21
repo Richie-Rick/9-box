@@ -163,3 +163,39 @@ export const GROWTH_READINESS_LABELS: Record<number, string> = {
   2: "Building",
   3: "Ready Now",
 };
+
+// Talent tiers: which boxes count as top, medium and low (decision D5).
+export type Tier = "top" | "medium" | "low";
+
+export const TIER_LABELS: Record<Tier, string> = { top: "Top", medium: "Medium", low: "Low" };
+
+export const BOX1_TIERS: Record<Tier, string[]> = {
+  top: ["Ready to Promote", "Stretch & Develop", "Expand the Role"],
+  medium: ["Keep Growing", "Deepen the Expertise", "Remove the Blockers"],
+  low: ["Intervene Now", "Build the Foundations", "Maintain & Recognise"],
+};
+
+export const BOX2_TIERS: Record<Tier, string[]> = {
+  top: ["Protect & Amplify", "Reinforce the Behaviours", "Invest Deeper"],
+  medium: ["Stay the Course", "Re-energise Now", "Redirect the Energy"],
+  low: ["Assess the Fit", "Have the Conversation", "Find What's Draining"],
+};
+
+export function getTier(label: string, tiers: Record<Tier, string[]>): Tier {
+  if (tiers.top.includes(label)) return "top";
+  if (tiers.medium.includes(label)) return "medium";
+  return "low";
+}
+
+/**
+ * A performance rating of Meeting or above while more key metrics were
+ * missed than hit: a coaching conversation, or a goal-setting problem.
+ */
+export function metricDisconnect(
+  performance: number | null,
+  results: { achieved: boolean | null }[]
+): { hit: number; missed: number; disconnect: boolean } {
+  const hit = results.filter((r) => r.achieved === true).length;
+  const missed = results.filter((r) => r.achieved === false).length;
+  return { hit, missed, disconnect: !!performance && performance >= 2 && missed > hit };
+}

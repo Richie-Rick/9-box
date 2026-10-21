@@ -471,6 +471,9 @@ model MetricResult {
   cycle       AssessmentCycle @relation(fields: [cycleId], references: [id], onDelete: Cascade)
   actual      String
   note        String?
+  // Hit or missed, as judged by whoever recorded the result; null = unsure.
+  // Lets Analysis compare performance ratings against metric outcomes.
+  achieved    Boolean?
   createdById String
   createdBy   User            @relation("MetricResultCreator", fields: [createdById], references: [id])
   createdAt   DateTime        @default(now())
