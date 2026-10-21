@@ -344,7 +344,7 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
       </Card>
 
       {/* Goals & metrics reviewed this cycle (read-only) */}
-      {cycle && <GoalsPanel employeeId={employeeId} cycleId={cycle.id} />}
+      {cycle && <GoalsPanel employeeId={employeeId} cycleId={cycle.id} defaultOpen />}
 
       {/* Review notes & meeting records */}
       {cycle && (

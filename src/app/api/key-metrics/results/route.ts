@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isManager } from "@/lib/permissions";
+import { canManageEmployee } from "@/lib/permissions";
 
 // Records (or updates) a key metric's actual result for a given review cycle.
 export async function POST(request: Request) {
@@ -23,10 +23,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Metric not found" }, { status: 404 });
   }
 
-  // The metric's own employee may record their actual & comment; managers may
-  // record for anyone.
+  // The metric's own employee may record their actual & comment; their
+  // manager (or leadership) may record for them.
   const isOwner = metric.employeeId === session.user.id;
-  if (!isOwner && !isManager(session.user.role)) {
+  if (!isOwner && !(await canManageEmployee(session.user.id, session.user.role, metric.employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

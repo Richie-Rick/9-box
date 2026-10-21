@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isManager } from "@/lib/permissions";
+import { canManageEmployee } from "@/lib/permissions";
 import { dbErrorResponse } from "@/lib/api-error";
 
 export async function GET(request: Request) {
@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   }
 
   const isOwn = employeeId === session.user.id;
-  if (!isOwn && !isManager(session.user.role)) {
+  if (!isOwn && !(await canManageEmployee(session.user.id, session.user.role, employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -51,9 +51,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "employeeId, name, and target are required" }, { status: 400 });
   }
 
-  // Employees may set their own key metrics; managers may set them for anyone.
+  // Employees may set their own key metrics; managers may set them for their reports.
   const isOwn = employeeId === session.user.id;
-  if (!isOwn && !isManager(session.user.role)) {
+  if (!isOwn && !(await canManageEmployee(session.user.id, session.user.role, employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -94,8 +94,7 @@ export async function PATCH(request: Request) {
 
   const isOwner = metric.employeeId === session.user.id;
   const isCreator = metric.createdById === session.user.id;
-  const isAdmin = session.user.role === "ADMIN";
-  if (!isOwner && !isCreator && !isAdmin && !isManager(session.user.role)) {
+  if (!isOwner && !isCreator && !(await canManageEmployee(session.user.id, session.user.role, metric.employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -132,8 +131,7 @@ export async function DELETE(request: Request) {
   }
 
   const isCreator = metric.createdById === session.user.id;
-  const isAdmin = session.user.role === "ADMIN";
-  if (!isCreator && !isAdmin) {
+  if (!isCreator && !(await canManageEmployee(session.user.id, session.user.role, metric.employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

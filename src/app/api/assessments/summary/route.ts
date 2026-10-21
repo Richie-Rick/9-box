@@ -65,10 +65,24 @@ export async function GET(request: Request) {
 
   // Meeting notes are only exposed to a manager who can act on this employee.
   const canSeeMeeting = isManagerRole || isLeadershipOrAdmin;
-  const mgrData = managerAssessment ? {
-    ...managerAssessment,
-    meeting: canSeeMeeting ? managerAssessment.meeting : null,
-  } : null;
+  // The employee only learns the status of their manager's assessment until
+  // results are sent; ratings and comments stay hidden.
+  const hideFromEmployee = isOwnRecord && !isLeadershipOrAdmin && !managerAssessment?.resultsSentAt;
+  const mgrData = managerAssessment
+    ? hideFromEmployee
+      ? {
+          id: managerAssessment.id,
+          submittedAt: null,
+          resultsSentAt: null,
+          meetingStatus: managerAssessment.meetingStatus,
+          manager: managerAssessment.manager,
+          meeting: null,
+        }
+      : {
+          ...managerAssessment,
+          meeting: canSeeMeeting ? managerAssessment.meeting : null,
+        }
+    : null;
 
   return NextResponse.json({
     employee,

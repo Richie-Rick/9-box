@@ -97,14 +97,15 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
   const openCycle = cycles.find((c) => c.status === "OPEN");
   const openSummary = openCycle ? cycleSummaries.find((s) => s.cycleId === openCycle.id) : undefined;
   const needsSelfAssessment = !!openCycle && !openSummary?.selfSubmitted;
-  const latestWithResults = cycleSummaries.find((s) => s.mgrSubmitted);
+  // Only cycles whose results have been shared with the employee count.
+  const latestWithResults = cycleSummaries.find((s) => s.resultsSent);
 
   // Goals & key metrics are scoped to the current cycle: prefer the open cycle,
   // otherwise the latest cycle we have any record for.
   const goalsCycleId = openCycle?.id ?? latestWithResults?.cycleId ?? cycleSummaries[0]?.cycleId ?? null;
 
-  // Compute averages from cycles that have manager assessments
-  const completedCycles = cycleSummaries.filter((s) => s.mgrSubmitted);
+  // Compute averages from cycles whose results have been shared
+  const completedCycles = cycleSummaries.filter((s) => s.resultsSent);
   const avgPerformance = completedCycles.length > 0
     ? completedCycles.reduce((sum, s) => sum + (s.mgrPerformance || 0), 0) / completedCycles.length
     : null;
@@ -254,9 +255,9 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm muted-2">Manager Assessment</span>
-                  <Badge variant={summary.mgrSubmitted ? "success" : "slate"}>
-                    {summary.mgrSubmitted ? "Submitted" : "Pending"}
+                  <span className="text-sm muted-2">Manager Review</span>
+                  <Badge variant={summary.resultsSent ? "success" : "slate"}>
+                    {summary.resultsSent ? "Shared" : "Not yet shared"}
                   </Badge>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -270,7 +271,7 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
                       Edit Self-Assessment
                     </Button>
                   )}
-                  {(summary.selfSubmitted || summary.mgrSubmitted) && (
+                  {(summary.selfSubmitted || summary.resultsSent) && (
                     <Button variant="secondary" onClick={() => router.push("/my-reviews")}>
                       View Results
                     </Button>

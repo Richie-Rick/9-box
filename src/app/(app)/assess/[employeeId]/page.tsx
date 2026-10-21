@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, use } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { StepForm, TextStep, MultiRatingStep, RatingWithComment, type StepConfig } from "@/components/assessments/step-form";
 import { assessmentPrompts } from "@/lib/assessment-prompts";
+import { MANAGER_REQUIRED_FIELDS } from "@/lib/assessment-fields";
 import { GoalsPanel } from "@/components/assessments/goals-panel";
 import { ActionsEditor } from "@/components/meetings/actions-editor";
 import { PageHeader } from "@/components/ui/page-header";
@@ -23,6 +24,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
   const [unlocking, setUnlocking] = useState(false);
   const [editing, setEditing] = useState(false);
   const [employeeName, setEmployeeName] = useState("");
+  const [error, setError] = useState<string | null>(null);
   // Whether every key metric has a saved actual result (gates step 1).
   const [metricsComplete, setMetricsComplete] = useState(true);
 
@@ -64,6 +66,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
 
     if (submit) setSubmitting(true);
     else setSaving(true);
+    setError(null);
 
     try {
       const res = await fetch("/api/assessments/manager", {
@@ -71,7 +74,11 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || `Failed to ${submit ? "submit" : "save"} (${res.status})`);
+        return;
+      }
       setAssessmentId(data.id);
       if (submit) {
         setIsSubmitted(true);
@@ -162,6 +169,7 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
       id: "values",
       title: "Values Alignment",
       description: "Rate this employee against each value, then add overall comments for the section.",
+      ownsFields: ["valCustomerFirst", "valStepIntoArena", "valFlockToProblems", "valGiveEnergy"],
       renderMulti: (vals, onChange) => (
         <MultiRatingStep
           values={vals}
@@ -252,6 +260,8 @@ export default function ManagerAssessPage({ params }: { params: Promise<{ employ
         submitting={submitting}
         isSubmitted={locked}
         disabled={locked}
+        requiredIds={MANAGER_REQUIRED_FIELDS}
+        error={error}
       />
     </div>
   );
