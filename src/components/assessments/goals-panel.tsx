@@ -27,6 +27,7 @@ interface GoalData {
   description: string | null;
   dueDate: string | null;
   status: string;
+  templateId?: string | null;
   updates?: GoalUpdateData[];
   createdBy?: Creator | null;
 }
@@ -50,13 +51,18 @@ interface MetricData {
   name: string;
   target: string;
   unit: string | null;
+  templateId?: string | null;
   results?: MetricResultData[];
   createdBy?: Creator | null;
 }
 
-// Small badge marking whether a goal/metric was set by the employee themselves
-// or by their manager. `subjectId` is the employee the goal/metric belongs to.
-function CreatorBadge({ createdBy, subjectId }: { createdBy?: Creator | null; subjectId: string }) {
+// Small badge marking whether a goal/metric was set by the job role, the
+// employee themselves or their manager. `subjectId` is the employee the
+// goal/metric belongs to.
+function CreatorBadge({ createdBy, subjectId, templateId }: { createdBy?: Creator | null; subjectId: string; templateId?: string | null }) {
+  if (templateId) {
+    return <Badge variant="navy" className="text-[11px]">Role-set</Badge>;
+  }
   if (!createdBy) return null;
   const byEmployee = createdBy.id === subjectId;
   return (
@@ -295,7 +301,7 @@ function MetricRow({
       <div className="flex items-center justify-between text-sm">
         <span className="flex items-center gap-2 min-w-0">
           <span className="text-ink font-medium truncate">{metric.name}</span>
-          <CreatorBadge createdBy={metric.createdBy} subjectId={subjectId} />
+          <CreatorBadge createdBy={metric.createdBy} subjectId={subjectId} templateId={metric.templateId} />
         </span>
         <span className="text-ink-2 shrink-0">
           Target: <span className="mono tnum">{metric.target}{metric.unit ? ` ${metric.unit}` : ""}</span>
@@ -423,7 +429,7 @@ function GoalRow({
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <p className="text-sm font-medium text-ink">{goal.title}</p>
-            <CreatorBadge createdBy={goal.createdBy} subjectId={subjectId} />
+            <CreatorBadge createdBy={goal.createdBy} subjectId={subjectId} templateId={goal.templateId} />
           </div>
           {goal.description && <p className="text-ink-3 text-xs mt-0.5">{goal.description}</p>}
           {goal.dueDate && (

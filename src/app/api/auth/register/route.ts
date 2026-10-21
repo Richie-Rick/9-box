@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { ensureJobRole, syncTemplatesForUser } from "@/lib/job-roles";
 
 // An invitation's `managerId` carries no foreign key (see migration 0003), so it
 // can point at a user who has since been removed. Copying a stale id straight
@@ -47,6 +48,19 @@ function buildInvitedUserData(params: {
     ...(params.team ? { team: params.team } : {}),
     ...(params.managerId ? { managerId: params.managerId } : {}),
   };
+}
+
+// Links a new account to the job role named by its title and gives it that
+// role's role-set goals and metrics. Best-effort: never blocks registration.
+async function attachJobRole(userId: string, jobTitle: string | null | undefined): Promise<void> {
+  try {
+    const jobRole = await ensureJobRole(jobTitle);
+    if (!jobRole) return;
+    await prisma.user.update({ where: { id: userId }, data: { jobRoleId: jobRole.id } });
+    await syncTemplatesForUser(userId);
+  } catch (err) {
+    console.error("Failed to attach job role", err);
+  }
 }
 
 export async function POST(request: Request) {
@@ -102,6 +116,7 @@ export async function POST(request: Request) {
         where: { id: invitation.id },
         data: { usedAt: new Date() },
       });
+      await attachJobRole(user.id, invitation.jobTitle);
 
       return NextResponse.json({ id: user.id, email: user.email, name: user.name }, { status: 201 });
     }
@@ -128,6 +143,7 @@ export async function POST(request: Request) {
         where: { id: invitation.id },
         data: { usedAt: new Date() },
       });
+      await attachJobRole(user.id, invitation.jobTitle);
 
       return NextResponse.json({ id: user.id, email: user.email, name: user.name }, { status: 201 });
     }

@@ -98,6 +98,11 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Role-set metrics keep the template's name and target; notes stay editable.
+  if (metric.templateId && session.user.role !== "ADMIN" && (name !== undefined || target !== undefined || unit !== undefined)) {
+    return NextResponse.json({ error: "This metric is set by the job role. Ask an admin to change it under Roles & Templates." }, { status: 400 });
+  }
+
   const data: Record<string, unknown> = {};
   if (name !== undefined) data.name = name;
   if (target !== undefined) data.target = target;
@@ -133,6 +138,10 @@ export async function DELETE(request: Request) {
   const isCreator = metric.createdById === session.user.id;
   if (!isCreator && !(await canManageEmployee(session.user.id, session.user.role, metric.employeeId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // Role-set metrics are managed from Admin → Roles & Templates.
+  if (metric.templateId && session.user.role !== "ADMIN") {
+    return NextResponse.json({ error: "This metric is set by the job role. Ask an admin to change it under Roles & Templates." }, { status: 400 });
   }
 
   await prisma.keyMetric.delete({ where: { id: metricId } });

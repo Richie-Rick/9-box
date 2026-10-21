@@ -81,6 +81,10 @@ model User {
   passwordHash String
   jobTitle     String?
   team         String?
+  // The job role (resolved from jobTitle) whose role-set metrics and goals
+  // flow through to this person.
+  jobRoleId    String?
+  jobRole      JobRole? @relation(fields: [jobRoleId], references: [id], onDelete: SetNull)
   role         Role     @default(EMPLOYEE)
   managerId    String?
   manager      User?    @relation("ManagerReports", fields: [managerId], references: [id])
@@ -110,9 +114,67 @@ model User {
   passwordResetTokens        PasswordResetToken[]
   reviewNotesAbout           ReviewNote[]       @relation("ReviewNoteEmployee")
   reviewNotesAuthored        ReviewNote[]       @relation("ReviewNoteAuthor")
+  metricTemplatesCreated     MetricTemplate[]   @relation("MetricTemplateCreator")
+  goalTemplatesCreated       GoalTemplate[]     @relation("GoalTemplateCreator")
 
   @@index([managerId])
   @@index([role])
+  @@index([jobRoleId])
+}
+
+// A job role, seeded from job titles. Admins attach metric and goal
+// templates to it; those are materialised as "role-set" key metrics and
+// goals for everyone holding the role.
+model JobRole {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users           User[]
+  metricTemplates MetricTemplate[]
+  goalTemplates   GoalTemplate[]
+}
+
+model MetricTemplate {
+  id          String   @id @default(cuid())
+  jobRoleId   String
+  jobRole     JobRole  @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  // Optional: only people in this team get the metric.
+  team        String?
+  name        String
+  target      String
+  unit        String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdById String
+  createdBy   User     @relation("MetricTemplateCreator", fields: [createdById], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  metrics KeyMetric[]
+
+  @@index([jobRoleId])
+}
+
+model GoalTemplate {
+  id            String   @id @default(cuid())
+  jobRoleId     String
+  jobRole       JobRole  @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  team          String?
+  title         String
+  description   String?
+  // Due this many days after the goal is created for a person.
+  dueOffsetDays Int?
+  isActive      Boolean  @default(true)
+  createdById   String
+  createdBy     User     @relation("GoalTemplateCreator", fields: [createdById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  goals Goal[]
+
+  @@index([jobRoleId])
 }
 
 model Invitation {
@@ -261,12 +323,16 @@ model Goal {
   description String?
   dueDate     DateTime?
   status      GoalStatus @default(ACTIVE)
+  // Set when the goal was created from a role-level template ("role-set").
+  templateId  String?
+  template    GoalTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   updates     GoalUpdate[]
 
   @@index([employeeId])
   @@index([createdById])
+  @@index([templateId])
 }
 
 model KeyMetric {
@@ -279,12 +345,16 @@ model KeyMetric {
   target      String
   unit        String?
   notes       String?
+  // Set when the metric was created from a role-level template ("role-set").
+  templateId  String?
+  template    MetricTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   results     MetricResult[]
 
   @@index([employeeId])
   @@index([createdById])
+  @@index([templateId])
 }
 
 model Meeting {

@@ -10,6 +10,7 @@ interface GoalData {
   description: string | null;
   dueDate: string | null;
   status: string;
+  templateId?: string | null;
   createdBy?: { id: string; name: string } | null;
 }
 
@@ -78,15 +79,19 @@ export function SelfGoalsEditor({ employeeId }: { employeeId: string }) {
       {!loading && goals.length > 0 && (
         <div className="space-y-2">
           {goals.map((g) => {
-            const byEmployee = g.createdBy ? g.createdBy.id === employeeId : true;
+            const byEmployee = !g.templateId && (g.createdBy ? g.createdBy.id === employeeId : true);
             return (
               <div key={g.id} className="flex items-start justify-between rounded-lg border border-line px-3 py-2">
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-ink">{g.title}</p>
-                    <Badge variant="slate" className="text-[11px]">
-                      {byEmployee ? "Set by employee" : "Set by manager"}
-                    </Badge>
+                    {g.templateId ? (
+                      <Badge variant="navy" className="text-[11px]">Role-set</Badge>
+                    ) : (
+                      <Badge variant="slate" className="text-[11px]">
+                        {byEmployee ? "Set by employee" : "Set by manager"}
+                      </Badge>
+                    )}
                   </div>
                   {g.description && <p className="text-xs text-ink-3">{g.description}</p>}
                   {g.dueDate && (

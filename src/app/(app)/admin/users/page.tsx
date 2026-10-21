@@ -21,6 +21,7 @@ interface UserData {
   isActive: boolean;
   managerId: string | null;
   startDate: string | null;
+  jobRoleId?: string | null;
   manager: { id: string; name: string } | null;
 }
 
@@ -249,6 +250,8 @@ export default function AdminUsersPage() {
   const managers = users.filter((u) => ["MANAGER", "AREA_LEAD", "LEADERSHIP", "ADMIN"].includes(u.role));
   const pendingInvitations = invitations.filter((i) => !i.usedAt);
   const teamOptions = [...new Set(users.map((u) => u.team).filter(Boolean) as string[])].sort();
+  // Job titles double as job roles (managed under Admin → Roles & Templates).
+  const titleOptions = [...new Set(users.map((u) => u.jobTitle).filter(Boolean) as string[])].sort();
 
   const q = filters.q.trim().toLowerCase();
   const visibleUsers = users
@@ -319,7 +322,8 @@ export default function AdminUsersPage() {
                   required
                 />
                 <Input
-                  label="Job Title"
+                  label="Job Title (role)"
+                  list="job-role-options"
                   value={newInvite.jobTitle}
                   onChange={(e) => setNewInvite((u) => ({ ...u, jobTitle: e.target.value }))}
                   placeholder="e.g. Senior Developer"
@@ -445,6 +449,10 @@ export default function AdminUsersPage() {
           </CardContent>
         </Card>
       )}
+
+      <datalist id="job-role-options">
+        {titleOptions.map((t) => <option key={t} value={t} />)}
+      </datalist>
 
       {/* Pending Invitations */}
       {pendingInvitations.length > 0 && (
@@ -576,9 +584,11 @@ export default function AdminUsersPage() {
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <input
+                  list="job-role-options"
                   defaultValue={user.jobTitle || ""}
                   onBlur={(e) => { if (e.target.value !== (user.jobTitle || "")) updateUser(user.id, { jobTitle: e.target.value }); }}
-                  placeholder="Job title"
+                  placeholder="Job title (role)"
+                  title="Job title doubles as the job role; role-set metrics and goals follow it"
                   className={`${INPUT_SM_CLASS} w-28`}
                 />
                 <input

@@ -102,6 +102,12 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // Role-set goals are managed from Admin → Roles & Templates; only an admin
+  // may retitle or cancel one here (progress still flows through goal updates).
+  if (goal.templateId && session.user.role !== "ADMIN" && (title !== undefined || status === "CANCELLED")) {
+    return NextResponse.json({ error: "This goal is set by the job role. Ask an admin to change it under Roles & Templates." }, { status: 400 });
+  }
+
   const data: Record<string, unknown> = {};
   if (title !== undefined) data.title = title;
   if (description !== undefined) data.description = description || null;
