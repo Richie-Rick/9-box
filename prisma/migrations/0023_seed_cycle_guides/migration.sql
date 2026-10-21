@@ -4,15 +4,37 @@
 -- admin account; skipped entirely if there is no admin yet.
 --
 -- Production's schema drifted from the migrations (see 0016/0017): the
--- database was first created with `prisma db push`, so columns added by
--- later migrations can be missing. Resources were never used in production,
--- so bring the Resource table in line with migration 0008 first. All of this
--- is idempotent and touches no existing data.
+-- database was first created with `prisma db push`, so tables and columns
+-- added by later migrations can be missing. Resources were never used in
+-- production, so recreate whatever of migrations 0006 and 0008 is absent
+-- before seeding. All of this is idempotent and touches no existing data.
 
+CREATE TABLE IF NOT EXISTS "Resource" (
+    "id" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "slug" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "published" BOOLEAN NOT NULL DEFAULT false,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Resource_pkey" PRIMARY KEY ("id")
+);
+
+ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "published" BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "sortOrder" INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "allowedRoles" "Role"[] DEFAULT ARRAY['EMPLOYEE', 'MANAGER', 'AREA_LEAD', 'LEADERSHIP', 'ADMIN']::"Role"[];
-ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "published" BOOLEAN NOT NULL DEFAULT false;
 CREATE UNIQUE INDEX IF NOT EXISTS "Resource_slug_key" ON "Resource"("slug");
+CREATE INDEX IF NOT EXISTS "Resource_slug_idx" ON "Resource"("slug");
+CREATE INDEX IF NOT EXISTS "Resource_published_idx" ON "Resource"("published");
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'Resource_createdById_fkey') THEN
+    ALTER TABLE "Resource" ADD CONSTRAINT "Resource_createdById_fkey" FOREIGN KEY ("createdById") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 INSERT INTO "Resource" ("id", "title", "slug", "content", "published", "sortOrder", "allowedRoles", "createdById", "createdAt", "updatedAt")
 SELECT gen_random_uuid()::text, $res$Performance & Growth Cycle — Process Overview$res$, 'process-overview', $res$<p>The most valuable part of this isn&#39;t the ratings. It&#39;s the gap between how you see yourself and how your manager sees you, and the conversation that gap opens up. Everything in the process is built to make that conversation honest, prepared and useful.</p>
