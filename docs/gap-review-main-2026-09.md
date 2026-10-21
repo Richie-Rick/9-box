@@ -109,3 +109,22 @@ Sizes: S under a day, M one to three days, L a week or more.
 6. **2.11** notifications and calendar (about a week). Then 2.12.
 
 Each phase lands as its own commit on a branch cut from `main`, with `tsc`, `eslint` and `next build` clean, and a Prisma migration numbered after `0017` where the schema changes.
+
+---
+
+## 5. Port status (21 October 2026)
+
+Built on `main` as a stack of pull requests, one per phase, each to be merged in order (merge the first, retarget the next to `main`, repeat). Every merge deploys to production and runs its migration on the live database; all migrations are additive and idempotent.
+
+| Phase | Branch | Covers | Migration |
+|---|---|---|---|
+| 0 | `claude/port-0-bugs` | B1–B7 | none |
+| 1 | `claude/port-1-forms` | 2.2, 2.3, 2.4, D4 | 0018 |
+| 2 | `claude/port-2-workflow` | 2.6, 2.7, 2.1, D1, D3 | 0019 |
+| 3 | `claude/port-3-analysis` | 2.5, 2.9, 2.10, D5 | 0020 |
+| 4 | `claude/port-4-roles` | 2.8 | 0021 (seeds roles from job titles) |
+| 5 | `claude/port-5-notifications` | 2.11, D2 | 0022 |
+
+Environment for phase 5 (Vercel project settings): `RESEND_API_KEY` and `EMAIL_FROM` (already used for invites), `APP_URL` (links in emails; falls back to `VERCEL_URL`), `CRON_SECRET` (Vercel sends it as a bearer token to `/api/cron/reminders`; the daily cron is in `vercel.json` and the handler only sends on Sunday and Monday in `REMINDER_TIMEZONE`, default `Australia/Melbourne`).
+
+Not built: 2.12 (360 feedback).

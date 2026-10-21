@@ -26,7 +26,7 @@ import {
   getColumnTracking,
 } from "@/lib/meeting";
 import { getTenureBucket, TENURE_BUCKETS } from "@/lib/tenure";
-import { getCycleDueDates, formatDueDate, type CycleDueDates } from "@/lib/utils";
+import { cycleDueDates, formatDueDate, type CycleDueDates } from "@/lib/utils";
 import type { TeamMemberStatus, MeetingStatus, CycleData } from "@/types";
 
 type ChipVariant = "default" | "magenta" | "navy" | "success" | "slate" | "warning";
@@ -540,7 +540,7 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
 
   const activeMember = activeId ? items.find((m) => m.id === activeId) : null;
 
-  const dueDates = useMemo(() => (cycle ? getCycleDueDates(cycle) : null), [cycle]);
+  const dueDates = useMemo(() => (cycle ? cycleDueDates(cycle) : null), [cycle]);
   const now = useMemo(() => Date.now(), []);
   const columnDue: Partial<Record<ColumnKey, Date>> = dueDates
     ? {

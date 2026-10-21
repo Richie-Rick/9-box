@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after as runAfter } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
 import { logAudit, diffFields } from "@/lib/audit";
 import { MANAGER_ASSESSMENT_FIELDS, MANAGER_RESPONSE_FIELDS, pickFields } from "@/lib/assessment-fields";
 import { sharedEditCheck, cleanReason } from "@/lib/shared-edit";
+import { notifyReviewUpdated } from "@/lib/notifications";
 
 export async function GET(
   _request: Request,
@@ -127,6 +128,11 @@ export async function PUT(
         before,
         after,
       });
+      // A rating or comment changed on a shared review: tell the employee.
+      if (existing.sharedAt && changed.some((f) => !MANAGER_RESPONSE_FIELDS.includes(f))) {
+        const id = assessment.id;
+        runAfter(() => notifyReviewUpdated(id).catch((err) => console.error("review_updated email failed", err)));
+      }
     }
   }
 

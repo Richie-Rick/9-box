@@ -17,6 +17,9 @@ export interface CycleData {
   quarter: number | null;
   year: number;
   status: "OPEN" | "CLOSED";
+  readyToMeetDueAt?: string | null;
+  meetingDueAt?: string | null;
+  resultsDueAt?: string | null;
   createdAt: string;
 }
 

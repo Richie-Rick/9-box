@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { isManager, canManageEmployee } from "@/lib/permissions";
+import { notifyMeetingCompleted } from "@/lib/notifications";
 
 // PATCH: save meeting notes; optionally mark complete (which sets the
 // assessment's meetingStatus to MEETING_COMPLETE).
@@ -54,6 +55,8 @@ export async function PATCH(
       where: { id: meeting.managerAssessment.id },
       data: { meetingStatus: "MEETING_COMPLETE" },
     });
+    const assessmentId = meeting.managerAssessment.id;
+    after(() => notifyMeetingCompleted(assessmentId).catch((err) => console.error("meeting_completed email failed", err)));
   }
 
   return NextResponse.json(updated);

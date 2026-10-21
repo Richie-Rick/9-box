@@ -116,6 +116,7 @@ model User {
   reviewNotesAuthored        ReviewNote[]       @relation("ReviewNoteAuthor")
   metricTemplatesCreated     MetricTemplate[]   @relation("MetricTemplateCreator")
   goalTemplatesCreated       GoalTemplate[]     @relation("GoalTemplateCreator")
+  notifications              NotificationLog[]
 
   @@index([managerId])
   @@index([role])
@@ -202,6 +203,11 @@ model AssessmentCycle {
   quarter   Int?
   year      Int
   status    CycleStatus @default(OPEN)
+  // Milestone due dates, chosen by the admin when the cycle is created
+  // (defaulting from the period). Null falls back to the computed dates.
+  readyToMeetDueAt DateTime?
+  meetingDueAt     DateTime?
+  resultsDueAt     DateTime?
   createdAt DateTime    @default(now())
 
   managerAssessments ManagerAssessment[]
@@ -552,4 +558,18 @@ model MetricResult {
   @@unique([keyMetricId, cycleId])
   @@index([keyMetricId])
   @@index([cycleId])
+}
+
+// One row per email sent, keyed by (user, type, ref) so a retried request
+// or a re-run cron never sends the same message twice.
+model NotificationLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  refId     String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, type, refId])
+  @@index([userId])
 }
