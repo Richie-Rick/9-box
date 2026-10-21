@@ -2,6 +2,17 @@
 -- rendered to HTML). Idempotent: a slug that already exists is left alone, so
 -- edits made in the app are never overwritten. Attributed to the earliest
 -- admin account; skipped entirely if there is no admin yet.
+--
+-- Production's schema drifted from the migrations (see 0016/0017): the
+-- database was first created with `prisma db push`, so columns added by
+-- later migrations can be missing. Resources were never used in production,
+-- so bring the Resource table in line with migration 0008 first. All of this
+-- is idempotent and touches no existing data.
+
+ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "sortOrder" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "allowedRoles" "Role"[] DEFAULT ARRAY['EMPLOYEE', 'MANAGER', 'AREA_LEAD', 'LEADERSHIP', 'ADMIN']::"Role"[];
+ALTER TABLE "Resource" ADD COLUMN IF NOT EXISTS "published" BOOLEAN NOT NULL DEFAULT false;
+CREATE UNIQUE INDEX IF NOT EXISTS "Resource_slug_key" ON "Resource"("slug");
 
 INSERT INTO "Resource" ("id", "title", "slug", "content", "published", "sortOrder", "allowedRoles", "createdById", "createdAt", "updatedAt")
 SELECT gen_random_uuid()::text, $res$Performance & Growth Cycle — Process Overview$res$, 'process-overview', $res$<p>The most valuable part of this isn&#39;t the ratings. It&#39;s the gap between how you see yourself and how your manager sees you, and the conversation that gap opens up. Everything in the process is built to make that conversation honest, prepared and useful.</p>
