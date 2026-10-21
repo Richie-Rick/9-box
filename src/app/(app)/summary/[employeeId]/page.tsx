@@ -9,13 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { PageHeader } from "@/components/ui/page-header";
 import { formatCyclePeriod } from "@/lib/utils";
-import {
-  getBox1Label,
-  getBox2Label,
-  getValuesAlignment,
-  getBox1Action,
-  getBox2Action,
-} from "@/lib/nine-box";
+import { getBox1Label, getBox2Label, getValuesAlignment } from "@/lib/nine-box";
+import { PlacementCards } from "@/components/assessments/placement-cards";
+import { ShareModal } from "@/components/assessments/share-modal";
 import { DimensionComparison } from "@/components/assessments/dimension-comparison";
 import { buildComparisonRows } from "@/lib/comparison";
 import { GoalsPanel } from "@/components/assessments/goals-panel";
@@ -62,9 +58,12 @@ interface SummaryData {
     supportCommitted: string | null;
     notes: string | null;
     submittedAt: string | null;
+    sharedAt: string | null;
     resultsSentAt: string | null;
     meetingStatus: string;
     manager: { id: string; name: string };
+    initialRatings?: Record<string, number> | null;
+    editedSinceShared?: boolean;
   } | null;
 }
 
@@ -136,6 +135,8 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
   const [loading, setLoading] = useState(true);
   const [showSendConfirm, setShowSendConfirm] = useState(false);
   const [sendingResults, setSendingResults] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     if (!cycleId) return;
@@ -169,11 +170,34 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
     }
   }
 
+  async function handleShare() {
+    if (!data?.managerAssessment?.id) return;
+    setSharing(true);
+    try {
+      const res = await fetch("/api/assessments/manager/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assessmentId: data.managerAssessment.id }),
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setData((prev) => prev ? {
+          ...prev,
+          managerAssessment: prev.managerAssessment ? { ...prev.managerAssessment, sharedAt: d.sharedAt } : null,
+        } : null);
+      }
+    } finally {
+      setSharing(false);
+      setShowShare(false);
+    }
+  }
+
   if (loading) return <div className="text-center py-12 text-ink-3">Loading...</div>;
   if (!data || !data.employee) return <div className="text-center py-12 text-ink-3">Summary not found.</div>;
 
   const { employee, cycle, selfAssessment: self, managerAssessment: mgr } = data;
   const isManagerView = mgr?.manager?.id === session?.user?.id;
+  const canShare = isManagerView && mgr?.submittedAt && !mgr?.sharedAt && !mgr?.resultsSentAt;
   const canSendResults = isManagerView && mgr?.submittedAt && self?.submittedAt && !mgr?.resultsSentAt;
 
   const mgrValuesAlignment = mgr?.valCustomerFirst && mgr?.valStepIntoArena && mgr?.valFlockToProblems && mgr?.valGiveEnergy
@@ -183,8 +207,11 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
   const box2Label = mgrValuesAlignment && mgr?.engagement ? getBox2Label(mgrValuesAlignment, mgr.engagement) : null;
 
   // Rows come from the shared section config, so both sides' answers to the
-  // same question sit together.
-  const comparisonSections = buildComparisonRows(self, mgr);
+  // same question sit together. The manager also sees where a rating moved
+  // after the self-assessment was revealed.
+  const comparisonSections = buildComparisonRows(self, mgr, {
+    initialRatings: isManagerView ? mgr?.initialRatings : undefined,
+  });
 
   return (
     <div className="space-y-6">
@@ -202,14 +229,25 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
               <span>{[employee.jobTitle, employee.team].filter(Boolean).join(" · ")}</span>
             )}
             <span className="mono tnum">{cycle ? formatCyclePeriod(cycle) : ""}</span>
+            {mgr?.sharedAt && !mgr.resultsSentAt && <Badge variant="navy">Shared ahead of 1:1</Badge>}
             {mgr?.resultsSentAt && <Badge variant="success">Results Sent</Badge>}
+            {mgr?.editedSinceShared && <Badge variant="warning">Updated since shared</Badge>}
           </span>
         }
         actions={
-          canSendResults ? (
-            <Button size="sm" variant="magenta" onClick={() => setShowSendConfirm(true)}>
-              Send Results to {employee.name}
-            </Button>
+          canShare || canSendResults ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {canShare && (
+                <Button size="sm" onClick={() => setShowShare(true)}>
+                  Share review with {employee.name}
+                </Button>
+              )}
+              {canSendResults && (
+                <Button size="sm" variant="magenta" onClick={() => setShowSendConfirm(true)}>
+                  Send Results to {employee.name}
+                </Button>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -244,24 +282,7 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
       ) : null}
 
       {/* 9-Box Placements */}
-      {(box1Label || box2Label) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {box1Label && (
-            <Card navy>
-              <p className="eyebrow text-white/70">Talent Density</p>
-              <p className="card-title mt-1">{box1Label}</p>
-              <p className="text-sm text-white/80 mt-2">{getBox1Action(box1Label)}</p>
-            </Card>
-          )}
-          {box2Label && (
-            <Card>
-              <p className="eyebrow">Cultural Momentum</p>
-              <p className="card-title mt-1">{box2Label}</p>
-              <p className="text-sm text-ink-2 mt-2">{getBox2Action(box2Label)}</p>
-            </Card>
-          )}
-        </div>
-      )}
+      <PlacementCards box1Label={box1Label} box2Label={box2Label} />
 
       {/* Side-by-side Comparison */}
       <Card>
@@ -339,6 +360,16 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
         </Card>
       )}
 
+      {showShare && (
+        <ShareModal
+          memberName={employee.name}
+          selfSubmitted={!!self?.submittedAt}
+          busy={sharing}
+          onConfirm={handleShare}
+          onCancel={() => setShowShare(false)}
+        />
+      )}
+
       {showSendConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/50">
           <div className="bg-paper border border-line rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
@@ -353,7 +384,7 @@ export default function SummaryPage({ params }: { params: Promise<{ employeeId: 
               </div>
             )}
             <p className="text-sm text-ink-2 mb-4">
-              This will make your assessment visible to {employee.name}. This action cannot be undone.
+              This closes out the cycle for {employee.name}: your assessment is locked and the card moves to Review Complete. This action cannot be undone.
             </p>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" size="sm" onClick={() => setShowSendConfirm(false)}>Cancel</Button>

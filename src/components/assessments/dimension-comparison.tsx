@@ -12,6 +12,7 @@ interface DimensionSection {
   labelFn?: (r: number) => string;
   selfText?: { label: string; value: string | null }[];
   managerText?: { label: string; value: string | null }[];
+  managerInitial?: number | null;
 }
 
 function defaultLabelFn(r: number): string {
@@ -34,8 +35,19 @@ function RatingBadge({ rating, labelFn }: { rating: number | null; labelFn: (r: 
   return <Badge variant={ratingVariant(rating)}>{labelFn(rating)}</Badge>;
 }
 
-export function DimensionComparison({ sections, showManagerColumn = true }: { sections: DimensionSection[]; showManagerColumn?: boolean }) {
-  const [openSections, setOpenSections] = useState<Set<string>>(new Set());
+export function DimensionComparison({
+  sections,
+  showManagerColumn = true,
+  defaultExpanded = false,
+}: {
+  sections: DimensionSection[];
+  showManagerColumn?: boolean;
+  /** Start with every expandable row open (meeting view, print). */
+  defaultExpanded?: boolean;
+}) {
+  const [openSections, setOpenSections] = useState<Set<string>>(
+    () => new Set(defaultExpanded ? sections.map((s) => s.id) : [])
+  );
 
   function toggle(id: string) {
     setOpenSections((prev) => {
@@ -76,6 +88,11 @@ export function DimensionComparison({ sections, showManagerColumn = true }: { se
                   <div className="text-center">
                     <p className="eyebrow mb-1">Manager</p>
                     <RatingBadge rating={section.managerRating} labelFn={fn} />
+                    {section.managerInitial != null && (
+                      <p className="tiny text-ink-3 mt-0.5" title="Rating before the self-assessment was revealed">
+                        was {fn(section.managerInitial)}
+                      </p>
+                    )}
                   </div>
                 )}
                 {expandable && (

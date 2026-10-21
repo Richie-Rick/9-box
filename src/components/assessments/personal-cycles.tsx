@@ -25,6 +25,8 @@ interface CycleSummary {
   mgrValuesAlignment: number | null;
   selfSubmitted: boolean;
   mgrSubmitted: boolean;
+  /** Manager review visible to the employee (shared ahead of the 1:1 or results sent). */
+  shared: boolean;
   resultsSent: boolean;
 }
 
@@ -78,6 +80,7 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
                 mgrValuesAlignment: mgrVA,
                 selfSubmitted: !!self?.submittedAt,
                 mgrSubmitted: !!mgr?.submittedAt,
+                shared: !!(mgr?.sharedAt || mgr?.resultsSentAt),
                 resultsSent: !!mgr?.resultsSentAt,
               });
             } catch { /* skip */ }
@@ -98,15 +101,15 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
   const openCycle = cycles.find((c) => c.status === "OPEN");
   const openSummary = openCycle ? cycleSummaries.find((s) => s.cycleId === openCycle.id) : undefined;
   const needsSelfAssessment = !!openCycle && !openSummary?.selfSubmitted;
-  // Only cycles whose results have been shared with the employee count.
-  const latestWithResults = cycleSummaries.find((s) => s.resultsSent);
+  // Only cycles whose review has been shared with the employee count.
+  const latestWithResults = cycleSummaries.find((s) => s.shared);
 
   // Goals & key metrics are scoped to the current cycle: prefer the open cycle,
   // otherwise the latest cycle we have any record for.
   const goalsCycleId = openCycle?.id ?? latestWithResults?.cycleId ?? cycleSummaries[0]?.cycleId ?? null;
 
-  // Compute averages from cycles whose results have been shared
-  const completedCycles = cycleSummaries.filter((s) => s.resultsSent);
+  // Compute averages from cycles whose review has been shared
+  const completedCycles = cycleSummaries.filter((s) => s.shared);
   const avgPerformance = completedCycles.length > 0
     ? completedCycles.reduce((sum, s) => sum + (s.mgrPerformance || 0), 0) / completedCycles.length
     : null;
@@ -253,7 +256,11 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
                 <div className="flex items-center gap-2">
                   <CardTitle>{formatCyclePeriod(summary)}</CardTitle>
                   {isOpen && <Badge variant="success">Open</Badge>}
-                  {summary.resultsSent && <Badge variant="success">Results Shared</Badge>}
+                  {summary.resultsSent ? (
+                    <Badge variant="success">Review Complete</Badge>
+                  ) : summary.shared ? (
+                    <Badge variant="navy">Shared</Badge>
+                  ) : null}
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -265,8 +272,8 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm muted-2">Manager Review</span>
-                  <Badge variant={summary.resultsSent ? "success" : "slate"}>
-                    {summary.resultsSent ? "Shared" : "Not yet shared"}
+                  <Badge variant={summary.shared ? "success" : "slate"}>
+                    {summary.shared ? "Shared" : "Not yet shared"}
                   </Badge>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -280,7 +287,7 @@ export function PersonalCyclesSection({ compact = false, showGoals = false }: Pe
                       Edit Self-Assessment
                     </Button>
                   )}
-                  {(summary.selfSubmitted || summary.resultsSent) && (
+                  {(summary.selfSubmitted || summary.shared) && (
                     <Button variant="secondary" onClick={() => router.push("/my-reviews")}>
                       View Results
                     </Button>

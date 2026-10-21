@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
 import { logAudit, diffFields } from "@/lib/audit";
-import { MANAGER_ASSESSMENT_FIELDS, pickFields } from "@/lib/assessment-fields";
+import { MANAGER_ASSESSMENT_FIELDS, MANAGER_RESPONSE_FIELDS, pickFields } from "@/lib/assessment-fields";
+import { sharedEditCheck, cleanReason } from "@/lib/shared-edit";
 
 export async function GET(
   _request: Request,
@@ -58,21 +59,38 @@ export async function PUT(
     return NextResponse.json({ error: "Not found or not yours" }, { status: 404 });
   }
 
-  // Once results have been sent the assessment is locked — no further edits.
-  if (existing.resultsSentAt) {
-    return NextResponse.json(
-      { error: "Results have already been sent; this assessment is locked." },
-      { status: 409 }
-    );
-  }
-
   const body = await request.json();
 
   // Only whitelisted content fields are written. submittedAt is stamped
   // server-side: set once when the client submits, never cleared or
   // overwritten with a client-supplied timestamp.
-  const content = pickFields(body, MANAGER_ASSESSMENT_FIELDS);
+  let content = pickFields(body, MANAGER_ASSESSMENT_FIELDS);
   const wantsSubmit = Boolean(body.submittedAt);
+
+  // Once results have been sent the assessment is locked — only the manager's
+  // responses to the employee's comments may still change.
+  if (existing.resultsSentAt) {
+    content = pickFields(content, MANAGER_RESPONSE_FIELDS);
+    const changed = Object.keys(diffFields(existing as unknown as Record<string, unknown>, { ...existing, ...content }, MANAGER_ASSESSMENT_FIELDS));
+    if (changed.length === 0 || wantsSubmit) {
+      return NextResponse.json(
+        { error: "Results have already been sent; this assessment is locked." },
+        { status: 409 }
+      );
+    }
+  }
+
+  // Once shared with the employee, changing a rating or comment needs a reason.
+  const editReason = cleanReason(body.editReason);
+  if (existing.sharedAt) {
+    const { needsReason } = sharedEditCheck(existing as unknown as Record<string, unknown>, content);
+    if (needsReason && !editReason) {
+      return NextResponse.json(
+        { error: "This review has been shared. Give a short reason for the change so it can be recorded.", needsReason: true },
+        { status: 400 }
+      );
+    }
+  }
 
   const assessment = await prisma.managerAssessment.update({
     where: { id },
@@ -103,7 +121,9 @@ export async function PUT(
         action: "assessment.edit",
         entityType: "ManagerAssessment",
         entityId: assessment.id,
-        summary: `Edited after completion: ${changed.join(", ")}`,
+        summary: existing.sharedAt
+          ? `Edited after sharing${editReason ? ` (${editReason})` : ""}: ${changed.join(", ")}`
+          : `Edited after completion: ${changed.join(", ")}`,
         before,
         after,
       });

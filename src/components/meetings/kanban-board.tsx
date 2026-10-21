@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { ShareModal } from "@/components/assessments/share-modal";
 import {
   MEETING_STATUS_LABELS,
   MANAGER_SETTABLE_STATUSES,
@@ -122,6 +123,7 @@ function MemberCard({
   now,
   onOpenProfile,
   onSendResults,
+  onShare,
   onAssess,
 }: {
   member: TeamMemberStatus;
@@ -130,6 +132,7 @@ function MemberCard({
   now: number;
   onOpenProfile: (id: string) => void;
   onSendResults: (member: TeamMemberStatus) => void;
+  onShare: (member: TeamMemberStatus) => void;
   onAssess: (member: TeamMemberStatus) => void;
 }) {
   const closed = column === "REVIEW_COMPLETE";
@@ -204,9 +207,16 @@ function MemberCard({
           <Badge variant="success">Closed · Results Sent</Badge>
         </div>
       ) : (
-        (column === "MEETING_SCHEDULED" || column === "MEETING_COMPLETE") &&
+        column !== "NOT_READY" &&
         member.managerAssessmentId && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            {/* Share the review ahead of the 1:1 so the employee can prepare. */}
+            {mgrSubmitted && !member.sharedAt && column !== "MEETING_COMPLETE" && (
+              <Button variant="secondary" size="sm" onClick={() => onShare(member)}>
+                Share review
+              </Button>
+            )}
+            {member.sharedAt && <Badge variant="navy">Shared</Badge>}
             {column === "MEETING_SCHEDULED" && (
               <Button variant="secondary" size="sm" onClick={() => openMeeting(member.managerAssessmentId!)}>
                 {member.meetingStarted ? "Edit Meeting Notes" : "Start Meeting"}
@@ -233,6 +243,7 @@ function Column({
   dueDate,
   onOpenProfile,
   onSendResults,
+  onShare,
   onAssess,
 }: {
   column: ColumnKey;
@@ -243,6 +254,7 @@ function Column({
   dueDate: Date | null;
   onOpenProfile: (id: string) => void;
   onSendResults: (member: TeamMemberStatus) => void;
+  onShare: (member: TeamMemberStatus) => void;
   onAssess: (member: TeamMemberStatus) => void;
 }) {
   // Only the three meeting statuses accept drops; NOT_READY and the terminal
@@ -276,6 +288,7 @@ function Column({
             now={now}
             onOpenProfile={onOpenProfile}
             onSendResults={onSendResults}
+            onShare={onShare}
             onAssess={onAssess}
           />
         ))}
@@ -385,6 +398,8 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
   const [activeId, setActiveId] = useState<string | null>(null);
   const [sendTarget, setSendTarget] = useState<TeamMemberStatus | null>(null);
   const [sending, setSending] = useState(false);
+  const [shareTarget, setShareTarget] = useState<TeamMemberStatus | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [overrideTarget, setOverrideTarget] = useState<{
     member: TeamMemberStatus;
     reason: "incomplete" | "no-mgr-assessment";
@@ -457,6 +472,26 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
       }
     } finally {
       setSending(false);
+    }
+  }
+
+  async function confirmShare() {
+    if (!shareTarget?.managerAssessmentId) return;
+    setSharing(true);
+    try {
+      const res = await fetch("/api/assessments/manager/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assessmentId: shareTarget.managerAssessmentId }),
+      });
+      if (res.ok) {
+        const { sharedAt } = await res.json();
+        const id = shareTarget.id;
+        setItems((ms) => ms.map((m) => (m.id === id ? { ...m, sharedAt } : m)));
+        setShareTarget(null);
+      }
+    } finally {
+      setSharing(false);
     }
   }
 
@@ -539,6 +574,7 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
               dueDate={columnDue[key] ?? null}
               onOpenProfile={(id) => router.push(`/team/${id}`)}
               onSendResults={(m) => setSendTarget(m)}
+              onShare={(m) => setShareTarget(m)}
               onAssess={openAssessment}
             />
           ))}
@@ -565,6 +601,15 @@ export function KanbanBoard({ members, cycle }: { members: TeamMemberStatus[]; c
           )}
       </DndContext>
 
+      {shareTarget && (
+        <ShareModal
+          memberName={shareTarget.name}
+          selfSubmitted={shareTarget.selfAssessmentStatus === "submitted"}
+          busy={sharing}
+          onConfirm={confirmShare}
+          onCancel={() => setShareTarget(null)}
+        />
+      )}
       {sendTarget && (
         <SendResultsModal
           memberName={sendTarget.name}

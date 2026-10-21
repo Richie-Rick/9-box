@@ -14,6 +14,8 @@ export interface FormQuestion {
   description?: string;
   required?: boolean;
   render: (value: unknown, onChange: (val: unknown) => void) => React.ReactNode;
+  /** Rendered above the question, e.g. the "what they said" panel. */
+  before?: React.ReactNode;
 }
 
 export interface FormSection {
@@ -43,6 +45,9 @@ interface AssessmentFormProps {
   disabled?: boolean;
   // Error returned by the last save/submit attempt, shown beneath the form.
   error?: string | null;
+  // Question ids that stay editable while the form is locked (manager
+  // responses after submission). Save stays available for them.
+  editableWhenLocked?: string[];
 }
 
 export type FormLayout = "steps" | "single";
@@ -90,6 +95,7 @@ export function AssessmentForm({
   isSubmitted,
   disabled,
   error,
+  editableWhenLocked = [],
 }: AssessmentFormProps) {
   const [layout, setLayout] = useLayout();
   const [currentStep, setCurrentStep] = useState(0);
@@ -172,9 +178,10 @@ export function AssessmentForm({
     </div>
   );
 
+  const canSaveLocked = editableWhenLocked.length > 0;
   const saveButton = (
-    <Button variant="secondary" onClick={onSave} disabled={saving || isSubmitted}>
-      {saving ? "Saving..." : "Save Draft"}
+    <Button variant="secondary" onClick={onSave} disabled={saving || (isSubmitted && !canSaveLocked)}>
+      {saving ? "Saving..." : isSubmitted ? "Save responses" : "Save Draft"}
     </Button>
   );
 
@@ -185,14 +192,20 @@ export function AssessmentForm({
   );
 
   function renderQuestion(q: FormQuestion, compact: boolean) {
+    const locked = !!disabled && !editableWhenLocked.includes(q.id);
     return (
       <div id={`q-${q.id}`} className={cn("scroll-mt-24", compact ? "py-5 first:pt-0 last:pb-0" : "py-6 first:pt-0 last:pb-0")}>
+        {q.before}
         <h3 className={cn("font-semibold text-ink mb-1", compact ? "text-base" : "text-lg")}>
           {q.title}
           {q.required && <span className="text-magenta ml-1" title="Required">*</span>}
         </h3>
         {q.description && <p className="text-sm text-ink-3 mb-3">{q.description}</p>}
-        <div className="mt-3">{q.render(values[q.id], (val) => onChange(q.id, val))}</div>
+        {/* One fieldset per question so responses can stay editable while the
+            ratings are locked (a disabled ancestor would disable everything). */}
+        <fieldset disabled={locked} className={cn("mt-3 min-w-0", locked && "opacity-70")}>
+          {q.render(values[q.id], (val) => onChange(q.id, val))}
+        </fieldset>
       </div>
     );
   }
@@ -200,11 +213,11 @@ export function AssessmentForm({
   function renderSectionBody(s: FormSection, compact: boolean) {
     return (
       <>
-        <fieldset disabled={disabled} className={cn("min-w-0 divide-y divide-line", disabled && "opacity-70")}>
+        <div className="min-w-0 divide-y divide-line">
           {s.questions.map((q) => (
             <div key={q.id}>{renderQuestion(q, compact)}</div>
           ))}
-        </fieldset>
+        </div>
         {s.footer && (
           <div className={cn("space-y-6", s.questions.length > 0 && "mt-6 pt-6 border-t border-line")}>{s.footer}</div>
         )}

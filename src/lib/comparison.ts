@@ -19,6 +19,8 @@ export interface ComparisonRow {
   labelFn?: (r: number) => string;
   selfText?: ComparisonText[];
   managerText?: ComparisonText[];
+  /** The manager's rating before the self-assessment was revealed, if it then changed. */
+  managerInitial?: number | null;
 }
 
 function ratingOf(values: AssessmentValues, field: string | undefined): number | null {
@@ -43,12 +45,13 @@ function textsFor(values: AssessmentValues, questions: Question[], audience: Aud
  * One row per rating question. A section with a single rating carries its
  * text questions beneath that rating; a section with several ratings (values)
  * gets a separate text-only row; a section with no ratings is text-only.
- * `showManager` blanks the manager side (used before results are shared).
+ * `showManager` blanks the manager side (used before the review is shared).
+ * `initialRatings` (manager only) marks ratings that moved after the reveal.
  */
 export function buildComparisonRows(
   self: AssessmentValues,
   manager: AssessmentValues,
-  { showManager = true }: { showManager?: boolean } = {}
+  { showManager = true, initialRatings }: { showManager?: boolean; initialRatings?: Record<string, number> | null } = {}
 ): ComparisonRow[] {
   const rows: ComparisonRow[] = [];
   const mgr = showManager ? manager : null;
@@ -62,11 +65,14 @@ export function buildComparisonRows(
 
     for (const q of ratings) {
       const single = ratings.length === 1;
+      const managerRating = ratingOf(mgr, q.fields.manager);
+      const initial = mgr && q.fields.manager ? initialRatings?.[q.fields.manager] : undefined;
       rows.push({
         id: q.id,
         label: q.label,
         selfRating: ratingOf(self, q.fields.self),
-        managerRating: ratingOf(mgr, q.fields.manager),
+        managerRating,
+        managerInitial: typeof initial === "number" && initial !== managerRating ? initial : null,
         labelFn: q.labels ? (r: number) => q.labels![r] ?? String(r) : undefined,
         selfText: single ? selfText : undefined,
         managerText: single ? managerText : undefined,

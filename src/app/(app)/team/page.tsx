@@ -21,6 +21,7 @@ interface TeamMember {
   meetingStatus?: string;
   meetingStarted?: boolean;
   managerAssessmentId?: string | null;
+  sharedAt: string | null;
   resultsSentAt: string | null;
 }
 
@@ -129,6 +130,7 @@ export default function MyTeamPage() {
                   <Badge variant={statusVariant(member.managerAssessmentStatus)}>
                     {statusLabel(member.managerAssessmentStatus)}
                   </Badge>
+                  {member.sharedAt && !member.resultsSentAt && <Badge variant="navy">Shared</Badge>}
                   {member.resultsSentAt && <Badge variant="success">Results Sent</Badge>}
                 </div>
 

@@ -31,6 +31,7 @@ export async function GET(
         id: true,
         createdAt: true,
         submittedAt: true,
+        sharedAt: true,
         resultsSentAt: true,
         employee: { select: { id: true, name: true, email: true } },
         manager: { select: { id: true, name: true } },
@@ -60,6 +61,7 @@ export async function GET(
     overallStatus: string;
     createdAt: Date;
     submittedAt: Date | null;
+    sharedAt: Date | null;
     resultsSentAt: Date | null;
   }> = managerAssessments.map((ma) => {
     const selfA = selfMap.get(ma.employee.id);
@@ -86,6 +88,7 @@ export async function GET(
       overallStatus,
       createdAt: ma.createdAt,
       submittedAt: ma.submittedAt,
+      sharedAt: ma.sharedAt,
       resultsSentAt: ma.resultsSentAt,
     };
   });
@@ -105,6 +108,7 @@ export async function GET(
       overallStatus: s.submittedAt ? "in_progress" : "pending",
       createdAt: s.createdAt,
       submittedAt: null,
+      sharedAt: null,
       resultsSentAt: null,
     });
   }

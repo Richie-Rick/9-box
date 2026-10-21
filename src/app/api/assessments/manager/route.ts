@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { isManager } from "@/lib/permissions";
 import { maybeMarkReadyToMeet } from "@/lib/meeting-server";
 import { logAudit, diffFields } from "@/lib/audit";
-import { MANAGER_ASSESSMENT_FIELDS, MANAGER_REQUIRED_FIELDS, pickFields, missingRequired } from "@/lib/assessment-fields";
+import { MANAGER_ASSESSMENT_FIELDS, MANAGER_REQUIRED_FIELDS, MANAGER_RESPONSE_FIELDS, pickFields, missingRequired } from "@/lib/assessment-fields";
+import { sharedEditCheck, cleanReason } from "@/lib/shared-edit";
 
 export async function GET(request: Request) {
   const session = await auth();
@@ -21,12 +22,12 @@ export async function GET(request: Request) {
   if (employeeId) where.employeeId = employeeId;
 
   // Managers see their own assessments; leadership/admin see all. Employees
-  // only ever see their own, and only once results have been sent.
+  // only ever see their own, and only once shared (or results sent).
   if (session.user.role === "MANAGER" || session.user.role === "AREA_LEAD") {
     where.managerId = session.user.id;
   } else if (session.user.role === "EMPLOYEE") {
     where.employeeId = session.user.id;
-    where.resultsSentAt = { not: null };
+    where.OR = [{ sharedAt: { not: null } }, { resultsSentAt: { not: null } }];
   }
 
   const assessments = await prisma.managerAssessment.findMany({
@@ -93,19 +94,36 @@ export async function POST(request: Request) {
     }
   }
 
-  // Once results have been sent the assessment is locked — no further edits.
-  if (existing?.resultsSentAt) {
-    return NextResponse.json(
-      { error: "Results have already been sent; this assessment is locked." },
-      { status: 409 }
-    );
-  }
-
   // Only whitelisted content fields are written. submittedAt is stamped
   // server-side: set once when the client submits, never cleared or
   // overwritten with a client-supplied timestamp.
-  const content = pickFields(data, MANAGER_ASSESSMENT_FIELDS);
+  let content = pickFields(data, MANAGER_ASSESSMENT_FIELDS);
   const wantsSubmit = Boolean(data.submittedAt);
+
+  // Once results have been sent the assessment is locked — only the manager's
+  // responses to the employee's comments may still change.
+  if (existing?.resultsSentAt) {
+    content = pickFields(content, MANAGER_RESPONSE_FIELDS);
+    const changed = Object.keys(diffFields(existing as unknown as Record<string, unknown>, { ...existing, ...content }, MANAGER_ASSESSMENT_FIELDS));
+    if (changed.length === 0 || wantsSubmit) {
+      return NextResponse.json(
+        { error: "Results have already been sent; this assessment is locked." },
+        { status: 409 }
+      );
+    }
+  }
+
+  // Once shared with the employee, changing a rating or comment needs a reason.
+  const editReason = cleanReason(data.editReason);
+  if (existing?.sharedAt) {
+    const { needsReason } = sharedEditCheck(existing as unknown as Record<string, unknown>, content);
+    if (needsReason && !editReason) {
+      return NextResponse.json(
+        { error: "This review has been shared. Give a short reason for the change so it can be recorded.", needsReason: true },
+        { status: 400 }
+      );
+    }
+  }
 
   // Every rating must be set before the assessment counts as submitted.
   if (wantsSubmit && !existing?.submittedAt) {
@@ -158,7 +176,9 @@ export async function POST(request: Request) {
         action: "assessment.edit",
         entityType: "ManagerAssessment",
         entityId: assessment.id,
-        summary: `Edited after completion: ${changed.join(", ")}`,
+        summary: existing.sharedAt
+          ? `Edited after sharing${editReason ? ` (${editReason})` : ""}: ${changed.join(", ")}`
+          : `Edited after completion: ${changed.join(", ")}`,
         before,
         after,
       });

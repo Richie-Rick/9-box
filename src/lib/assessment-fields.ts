@@ -19,6 +19,10 @@ export const SELF_ASSESSMENT_FIELDS = [...self.rating, ...self.text];
 // counted as done but silently dropped from the 9-box and Analysis.
 export const MANAGER_REQUIRED_FIELDS = manager.required;
 
+// The manager's responses to the employee's comments. Editable after
+// submission and exempt from the "reason for editing a shared review" rule.
+export const MANAGER_RESPONSE_FIELDS = manager.response;
+
 export const SELF_REQUIRED_FIELDS = self.required;
 
 export const FIELD_LABELS: Record<string, string> = { ...self.labels, ...manager.labels };

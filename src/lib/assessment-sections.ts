@@ -27,6 +27,8 @@ export interface Question {
   sideLabels?: Partial<Record<Audience, string>>;
   /** Kept for history and whitelisting but no longer asked on the form. */
   formHidden?: boolean;
+  /** The manager's reply to the employee's comments in this section. */
+  isResponse?: boolean;
 }
 
 export interface Section {
@@ -123,6 +125,15 @@ export const SECTIONS: Section[] = [
         titles: { self: "What did you learn this quarter?" },
         placeholders: { self: "Skills developed, insights gained..." },
       },
+      {
+        id: "performance.response",
+        kind: "text",
+        label: "Manager's response",
+        isResponse: true,
+        fields: { manager: "responsePerformance" },
+        titles: { manager: "Your response to {name}'s comments on performance" },
+        placeholders: { manager: "Acknowledge, add context, or explain where you see it differently..." },
+      },
     ],
   },
   {
@@ -172,6 +183,15 @@ export const SECTIONS: Section[] = [
           self: "The role or scope you want, and the evidence you are ready...",
           manager: "Growth indicators, learning agility, stretch work taken on...",
         },
+      },
+      {
+        id: "growth.response",
+        kind: "text",
+        label: "Manager's response",
+        isResponse: true,
+        fields: { manager: "responseGrowth" },
+        titles: { manager: "Your response to {name}'s comments on growth" },
+        placeholders: { manager: "What you agree with, what you would add, and the next step..." },
       },
     ],
   },
@@ -267,6 +287,15 @@ export const SECTIONS: Section[] = [
           manager: "Examples of values-aligned behaviour...",
         },
       },
+      {
+        id: "values.response",
+        kind: "text",
+        label: "Manager's response",
+        isResponse: true,
+        fields: { manager: "responseValues" },
+        titles: { manager: "Your response to {name}'s comments on values" },
+        placeholders: { manager: "Behaviours you want to see more of, and any gap you see..." },
+      },
     ],
   },
   {
@@ -329,6 +358,15 @@ export const SECTIONS: Section[] = [
           manager: "Time, coaching, resources, introductions...",
         },
       },
+      {
+        id: "engagement.response",
+        kind: "text",
+        label: "Manager's response",
+        isResponse: true,
+        fields: { manager: "responseEngagement" },
+        titles: { manager: "Your response to {name}'s comments on engagement" },
+        placeholders: { manager: "What you heard, and what you will do about it..." },
+      },
     ],
   },
   {
@@ -380,17 +418,34 @@ export function questionsFor(audience: Audience): { section: Section; question: 
 }
 
 /** Column names by kind for the given audience. */
-export function fieldsFor(audience: Audience): { rating: string[]; text: string[]; required: string[]; labels: Record<string, string> } {
+export function fieldsFor(audience: Audience): {
+  rating: string[];
+  text: string[];
+  required: string[];
+  response: string[];
+  labels: Record<string, string>;
+} {
   const rating: string[] = [];
   const text: string[] = [];
   const required: string[] = [];
+  const response: string[] = [];
   const labels: Record<string, string> = {};
   for (const { question } of questionsFor(audience)) {
     const field = question.fields[audience]!;
     if (question.kind === "rating") rating.push(field);
     else text.push(field);
     if (question.required) required.push(field);
+    if (question.isResponse) response.push(field);
     labels[field] = question.label;
   }
-  return { rating, text, required, labels };
+  return { rating, text, required, response, labels };
+}
+
+/** Rating fields of a section for the given audience. */
+export function sectionRatingFields(sectionId: string, audience: Audience): string[] {
+  const section = SECTIONS.find((s) => s.id === sectionId);
+  if (!section) return [];
+  return section.questions
+    .filter((q) => q.kind === "rating" && q.fields[audience])
+    .map((q) => q.fields[audience]!);
 }
